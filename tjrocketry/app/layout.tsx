@@ -8,6 +8,17 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icons/favicon.ico",
   },
+  openGraph: {
+    title: "TJ Rocketry",
+    description: "One of the most accomplished high school rocketry teams in the nation.",
+    images: ["/images/preview.png"],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "TJ Rocketry",
+    description: "One of the most accomplished high school rocketry teams in the nation.",
+    images: ["/images/preview.png"],
+  },
 };
 
 export default function RootLayout({
