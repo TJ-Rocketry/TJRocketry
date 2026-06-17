@@ -1,4 +1,5 @@
 "use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import { LogIn } from "lucide-react";
@@ -6,15 +7,32 @@ import { LogIn } from "lucide-react";
 
 export default function MarketingNavbar() {
   const { loading, authenticated } = useAuth();
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
 
   return (
-    <nav className="fixed w-full z-50 transition-all duration-300 bg-black/10 backdrop-blur-sm border-b border-white/10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <nav className={`fixed w-full z-50 transition-all duration-300 ease-in-out ${
+      scrolled 
+        ? "bg-neutral-900 backdrop-blur-md border-b border-white/10" 
+        : "bg-transparent"
+    }`}>
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-12">
+        <div className={`flex items-center justify-between transition-all duration-300 ${scrolled ? "h-16" : "h-20"}`}>
           <Link href="/" className="flex items-center group">
             <div className="p-1.5 transition-transform group-hover:scale-110">
-              <img src="/images/logo.png" className="w-12 h-12 invert brightness-0" alt="TJ Rocketry" />
+              <img 
+                src="/images/logo.png" 
+                className="w-12 h-12 invert brightness-0 mix-blend-screen" 
+                alt="TJ Rocketry" 
+              />
             </div>
             <span style={{ fontFamily: "sans-serif", fontWeight: 500 }} className="text-white text-xl tracking-tighter">
               TJRocketry
