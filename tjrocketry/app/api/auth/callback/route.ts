@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     
     // Set cookie with access token
     const cookieStore = await cookies();
-    cookieStore.set("ion_access_token", token.access_token, {
+    cookieStore.set("ion_access_token", token.access_token as string, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
     // Optionally set refresh token too
     if (token.refresh_token) {
-        cookieStore.set("ion_refresh_token", token.refresh_token, {
+        cookieStore.set("ion_refresh_token", token.refresh_token as string, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
@@ -39,8 +39,8 @@ export async function GET(request: Request) {
         });
     }
 
-    // Redirect to home or where the user was
-    return NextResponse.redirect(new URL("/", request.url));
+    // Success response
+    return new NextResponse("auth success", { status: 200 });
   } catch (error) {
     console.error("Access Token Error", error);
     return NextResponse.json({ error: "Authentication failed" }, { status: 500 });

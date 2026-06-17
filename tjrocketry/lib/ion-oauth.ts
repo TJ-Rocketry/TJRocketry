@@ -1,12 +1,11 @@
 import { AuthorizationCode } from 'simple-oauth2';
 
-const ion_client_id = process.env.ION_CLIENT_ID;
-const ion_client_secret = process.env.ION_CLIENT_SECRET;
+const ion_client_id = process.env.ION_CLIENT_ID || process.env.NEXT_CLIENT_ID;
+const ion_client_secret = process.env.ION_CLIENT_SECRET || process.env.NEXT_CLIENT_SECRET;
 const ion_redirect_uri = process.env.ION_REDIRECT_URI;
 
 if (!ion_client_id || !ion_client_secret || !ion_redirect_uri) {
-  // We don't throw here to avoid crashing during build, but we should log or handle it
-  console.warn("Missing Ion OAuth environment variables.");
+  console.warn("Missing Ion OAuth environment variables. Check ION_CLIENT_ID, ION_CLIENT_SECRET, and ION_REDIRECT_URI.");
 }
 
 export const client = new AuthorizationCode({
