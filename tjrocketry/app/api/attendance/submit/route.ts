@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
     if (block.isClosed) {
       const user = await prisma.user.findUnique({ where: { ionId } });
-      if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
+      if (!user || !user.roles.some((r: string) => ["admin", "sponsor", "officer"].includes(r))) {
         return NextResponse.json({ error: "Block is closed" }, { status: 400 });
       }
     }
