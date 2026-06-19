@@ -1,0 +1,121 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        Int                @id @default(autoincrement())
+  ionId     String             @unique
+  email     String?            @unique
+  username  String?
+  classYear String?
+  name      String?
+  roles     String[]           @default(["user"])
+  pfpUrl    String?
+  attendanceRecords AttendanceRecord[]
+  inventoryLogs        InventoryLog[]
+  checkoutRequests     CheckoutRequest[]
+  approvedRequests     CheckoutRequest[]   @relation("Approver")
+  notifications        Notification[]
+}
+
+model AttendanceBlock {
+  id        Int                @id @default(autoincrement())
+  blockType String
+  date      DateTime           @db.Date
+  code      String
+  isClosed  Boolean            @default(false)
+  createdAt DateTime           @default(now())
+  records   AttendanceRecord[]
+}
+
+model AttendanceRecord {
+  id        Int               @id @default(autoincrement())
+  block     AttendanceBlock   @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  blockId   Int
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int
+  timestamp DateTime          @default(now())
+
+  @@unique([blockId, userId])
+}
+
+model InventoryItem {
+  id          Int      @id @default(autoincrement())
+  name        String
+  location    String
+  type        String   // "consumable" or "reusable"
+  quantity    Int      @default(0)
+  highValue   Boolean  @default(false)
+  category    String   // "Airframe", "Motors", "Altimeters"
+  subCategory String
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  logs        InventoryLog[]
+  checkoutRequests CheckoutRequest[]
+}
+
+model InventoryLog {
+  id        Int           @id @default(autoincrement())
+  itemId    Int
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  change    Int           // positive = check-in, negative = check-out
+  type      String        // "checkin", "checkout", "set"
+  timestamp DateTime      @default(now())
+}
+
+model CheckoutRequest {
+  id         Int           @id @default(autoincrement())
+  itemId     Int
+  item       InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId     Int
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quantity   Int           @default(1)
+  status     String        @default("pending") // "pending", "approved", "rejected"
+  approvedBy Int?
+  approver   User?         @relation("Approver", fields: [approvedBy], references: [id])
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+}
+
+model LaunchEvent {
+  id          Int        @id @default(autoincrement())
+  title       String
+  date        DateTime   @db.Date
+  startTime   String?
+  endTime     String?
+  notes       String?
+  location    String?
+  createdAt   DateTime   @default(now())
+}
+
+model ResourceFile {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  fileUrl     String
+  fileSize    Int?
+  category    String   // "build_tips", "digital_files", "hpr"
+  subCategory String?
+  createdAt   DateTime @default(now())
+}

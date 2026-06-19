@@ -1,7 +1,21 @@
 "use client";
+import { useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function Home() {
+  const { authenticated, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && authenticated) {
+      router.push("/home");
+    }
+  }, [loading, authenticated, router]);
+
+  if (loading) return null;
+
   return (
     <div className="bg-neutral-900">
       <div className="relative w-full h-screen overflow-hidden">
@@ -59,8 +73,6 @@ export default function Home() {
           </div>
         </section>
 
-        
-
         <section className="grid md:grid-cols-2 gap-16 items-center">
           <img src="/images/prepareforeachlaunch.jpg" alt="Preparation" className="w-full h-auto" />
           <div>
@@ -98,7 +110,7 @@ export default function Home() {
             Beyond the rocket design and engineering, we are a group of students learning, building, and having fun together.
           </p>
         </section>
-        <div className="text-center py-16  border-white/10 my-24">
+        <div className="text-center py-16 border-white/10 my-24">
             <p className="text-white/30 text-md mb-12">2025-2026 Season</p>
             <div className="flex flex-col md:flex-row justify-center gap-16 md:gap-24">
 
@@ -124,8 +136,8 @@ export default function Home() {
           <div className="grid md:grid-cols-2 gap-4 mt-10 text-left">
 
             <div className="flex flex-col gap-3 p-8 bg-neutral-800 border border-neutral-300">
-              <h3 className="text-2xl text-amber-100 ">TARC</h3>
-              <p className="text-amber-100/40 text-xs ">Team America Rocketry Challenge</p>
+              <h3 className="text-2xl text-amber-100">TARC</h3>
+              <p className="text-amber-100/40 text-xs">Team America Rocketry Challenge</p>
               <p className="text-white/50 leading-relaxed text-sm mt-2">
                 The world's largest student rocketry contest. Teams design, build, and fly a model rocket
                 to a precise target altitude for an exact flight duration all scored for accuracy.
@@ -134,8 +146,8 @@ export default function Home() {
             </div>
 
             <div className="flex flex-col gap-3 p-8 bg-neutral-800 border border-neutral-300">
-              <h3 className="text-2xl text-blue-100 ">NASA SLI</h3>
-              <p className="text-blue-100/40 text-xs ">Student Launch Initiative</p>
+              <h3 className="text-2xl text-blue-100">NASA SLI</h3>
+              <p className="text-blue-100/40 text-xs">Student Launch Initiative</p>
               <p className="text-white/50 leading-relaxed text-sm mt-2">
                 A year-long NASA program to design, build, and fly a high-powered rocket with a
                 payload.
@@ -145,17 +157,14 @@ export default function Home() {
             <Link href="/apply" className="inline-block mx-auto rounded center mt-8 px-10 py-4 bg-white text-neutral-900 text-sm hover:bg-white/90 transition-colors duration-200">
               Apply for 2026-2027
             </Link>
-
-          
-        </div>      
         </div>
-      
-      <footer className="py-12 border-t border-white/10 max-w-[1440px] mx-auto ">
+      </div>
+
+      <footer className="py-12 border-t border-white/10 max-w-[1440px] mx-auto">
         <div className="px-4 sm:px-8 lg:px-12">
           <p className="text-white font-semibold text-3xl left mb-2">TJ Rocketry</p>
           <p className="text-neutral-300 text-lg left">Facebook: <Link className="hover:underline" href="https://www.facebook.com/groups/tjrocketry/">https://www.facebook.com/groups/tjrocketry/</Link></p>
           <p className="text-neutral-300 text-lg left">Developed by Elijah Feldman</p>
-
         </div>
       </footer>
     </div>
