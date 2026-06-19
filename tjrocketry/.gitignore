@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local file uploads (migrated to Supabase Storage)
+/public/uploads/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

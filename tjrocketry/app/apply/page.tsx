@@ -11,7 +11,7 @@ export default function ApplyPage() {
           <h2 className="text-2xl font-bold mb-4">Application Form</h2>
           <p className="text-neutral-400 mb-8">Please fill out the form below to apply for membership.</p>
           
-          <button className="w-full border border-white text-black font-bold py-3 px-6 hover:bg-white transition-colors">
+          <button className="w-full border border-white text-black bg-neutral-200 font-bold py-3 px-6 hover:bg-neutral-100 transition-colors">
             Start Application
           </button>
         </div>

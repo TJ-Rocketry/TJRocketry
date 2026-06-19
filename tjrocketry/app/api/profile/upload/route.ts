@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import fs from "fs";
-import path from "path";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +12,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Verify token and get user ID
     const profileRes = await fetch("https://ion.tjhsst.edu/api/profile", {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -35,21 +33,27 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split('.').pop();
-    const filename = `${ionId}-${Date.now()}.${ext}`;
-    const uploadDir = path.join(process.cwd(), "public/uploads");
-    const filepath = path.join(uploadDir, filename);
+    const ext = file.name.split(".").pop();
+    const filename = `avatars/${ionId}-${Date.now()}.${ext}`;
 
-    // Create uploads directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("profiles")
+      .upload(filename, buffer, {
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error("Supabase upload error:", uploadError);
+      return NextResponse.json({ error: "Upload failed" }, { status: 500 });
     }
 
-    fs.writeFileSync(filepath, buffer);
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from("profiles")
+      .getPublicUrl(filename);
 
-    const pfpUrl = `/uploads/${filename}`;
+    const pfpUrl = publicUrlData.publicUrl;
 
-    // Update user in DB
     await prisma.user.update({
       where: { ionId },
       data: { pfpUrl },
