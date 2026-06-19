@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 
     const submittedBlockIds = new Set(records.map((r: { blockId: number }) => r.blockId));
 
-    const blocksWithStatus = blocks.map(block => ({
+    const blocksWithStatus = blocks.map((block: { id: number; blockType: string; date: Date; code: string; isClosed: boolean; createdAt: Date }) => ({
       ...block,
       submitted: submittedBlockIds.has(block.id),
     }));
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
 
   const submittedBlockIds = new Set(records.map((r: { blockId: number }) => r.blockId));
 
-  const blocksWithStatus = blocks.map(block => ({
+  const blocksWithStatus = blocks.map((block: { id: number; blockType: string; date: Date; code: string; isClosed: boolean; createdAt: Date }) => ({
     ...block,
     submitted: submittedBlockIds.has(block.id),
   }));
