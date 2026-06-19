@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       select: { blockId: true },
     });
 
-    const submittedBlockIds = new Set(records.map(r => r.blockId));
+    const submittedBlockIds = new Set(records.map((r: { blockId: number }) => r.blockId));
 
     const blocksWithStatus = blocks.map(block => ({
       ...block,
@@ -84,7 +84,7 @@ export async function GET(request: Request) {
     },
   });
 
-  const submittedBlockIds = new Set(records.map(r => r.blockId));
+  const submittedBlockIds = new Set(records.map((r: { blockId: number }) => r.blockId));
 
   const blocksWithStatus = blocks.map(block => ({
     ...block,
