@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@prisma/client", "pg"],
+  serverExternalPackages: ["pg-cloudflare"],
 };
 
 export default nextConfig;
