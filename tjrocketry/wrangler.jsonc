@@ -24,7 +24,10 @@
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
 	},
+	"routes": [
+		{ "pattern": "tjrocketry.org", "custom_domain": true }
+	],
 	"vars": {
-		"ION_REDIRECT_URI": "https://tjrocketry.2028efeldman.workers.dev/api/auth/callback"
+		"ION_REDIRECT_URI": "https://tjrocketry.org/api/auth/callback"
 	}
 }

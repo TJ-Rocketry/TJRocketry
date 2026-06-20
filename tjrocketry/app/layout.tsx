@@ -11,6 +11,7 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "TJ Rocketry",
   description: "One of the most accomplished high school rocketry teams in the nation.",
+  metadataBase: new URL("https://tjrocketry.org"),
   icons: {
     icon: "/icons/favicon.ico",
   },

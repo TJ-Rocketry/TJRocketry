@@ -66,6 +66,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, block });
   } catch (error) {
+    console.error("Failed to create block:", error);
     return NextResponse.json({ error: "Failed to create block" }, { status: 500 });
   }
 }
@@ -117,6 +118,7 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("Failed to delete block:", error);
     return NextResponse.json({ error: "Failed to delete block" }, { status: 500 });
   }
 }

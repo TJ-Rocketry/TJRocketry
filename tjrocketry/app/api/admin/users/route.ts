@@ -23,7 +23,8 @@ async function checkAdminAccess() {
     if (!user || !user.roles.includes("admin")) return false;
 
     return true;
-  } catch {
+  } catch (e) {
+    console.error("checkAdminAccess error:", e);
     return false;
   }
 }
@@ -38,6 +39,7 @@ export async function GET() {
     const allUsers = await db.select().from(users).orderBy(users.id);
     return NextResponse.json({ users: allUsers });
   } catch (error) {
+    console.error("Failed to fetch users:", error);
     return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
   }
 }
@@ -63,6 +65,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {
+    console.error("Failed to update user:", error);
     return NextResponse.json({ error: "Failed to update user" }, { status: 500 });
   }
 }

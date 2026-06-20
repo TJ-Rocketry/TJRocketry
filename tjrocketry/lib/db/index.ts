@@ -1,9 +1,12 @@
-import { Pool } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
+import { createClient } from "@supabase/supabase-js";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL!,
-});
+const queryClient = postgres(process.env.DATABASE_URL!, { prepare: false });
+export const db = drizzle({ client: queryClient, schema });
 
-export const db = drizzle({ client: pool, schema });
+export const supabase = createClient(
+	process.env.NEXT_PUBLIC_SUPABASE_URL!,
+	process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);

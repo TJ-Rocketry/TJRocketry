@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useEffect } from "react";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -7,13 +7,6 @@ import Link from "next/link";
 export default function Home() {
   const { authenticated, loading } = useAuth();
   const router = useRouter();
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = 0.4;
-    }
-  }, []);
 
   useEffect(() => {
     if (!loading && authenticated) {
@@ -30,23 +23,11 @@ export default function Home() {
           <img
             src="/images/hero.png"
             alt="Hero"
-            className="lg:hidden absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover"
             style={{
               objectPosition: "center 50%",
             }}
           />
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="hidden lg:block absolute inset-0 w-full h-full object-cover"
-            style={{
-              objectPosition: "center center",
-            }}
-          >
-            <source src="/videos/hero_final.mp4" type="video/mp4" />
-          </video>
           <div className="absolute inset-0 bg-black/20" />
         </div>
 

@@ -13,6 +13,6 @@ export default {
 	...base,
 	default: {
 		...base.default,
-		minify: true,
+		minify: false,
 	},
 } satisfies OpenNextConfig;

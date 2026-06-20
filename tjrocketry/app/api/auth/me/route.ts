@@ -1,8 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { supabase } from "@/lib/db";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -17,6 +15,7 @@ export async function GET() {
       headers: {
         Authorization: `Bearer ${token}`,
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!profileRes.ok) {
@@ -26,11 +25,11 @@ export async function GET() {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.ionId, ionId))
-      .limit(1);
+    const { data: user } = await supabase
+      .from('User')
+      .select("id, ionId, name, username, classYear, roles, pfpUrl")
+      .eq("ionId", ionId)
+      .maybeSingle();
 
     if (!user) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
