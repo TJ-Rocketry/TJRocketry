@@ -23,5 +23,8 @@
 		// Enable image optimization
 		// see https://opennext.js.org/cloudflare/howtos/image
 		"binding": "IMAGES"
+	},
+	"vars": {
+		"ION_REDIRECT_URI": "https://tjrocketry.2028efeldman.workers.dev/api/auth/callback"
 	}
 }

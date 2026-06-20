@@ -36,7 +36,7 @@ yarn-error.log*
 
 # vercel
 .vercel
-
+wrangler.jsonc
 # local file uploads (migrated to Supabase Storage)
 /public/uploads/
 
