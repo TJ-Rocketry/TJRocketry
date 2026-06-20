@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import NavbarManager from "./components/NavbarManager";
 
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -13,7 +14,11 @@ export const metadata: Metadata = {
   description: "One of the most accomplished high school rocketry teams in the nation.",
   metadataBase: new URL("https://tjrocketry.org"),
   icons: {
-    icon: "/icons/favicon.ico",
+    icon: [
+      { url: "/icons/favicon-light.ico", sizes: "any", media: "(prefers-color-scheme: light)" },
+      { url: "/icons/favicon-dark.ico", sizes: "any", media: "(prefers-color-scheme: dark)" },
+      "/icons/favicon.ico",
+    ],
   },
   openGraph: {
     title: "TJ Rocketry",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq, gte, desc, asc, and } from "drizzle-orm";
+import { eq, gte, desc, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { attendanceBlocks, attendanceRecords } from "@/lib/db/schema";
 import { checkAdminOrSponsorAccess, checkAdminSponsorOrOfficerAccess } from "@/lib/auth";
@@ -96,6 +96,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ success: true, block });
   } catch (error) {
+    console.error("Failed to update block:", error);
     return NextResponse.json({ error: "Failed to update block" }, { status: 500 });
   }
 }
@@ -143,6 +144,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({ success: true, block });
   } catch (error) {
+    console.error("Failed to update block:", error);
     return NextResponse.json({ error: "Failed to update block" }, { status: 500 });
   }
 }

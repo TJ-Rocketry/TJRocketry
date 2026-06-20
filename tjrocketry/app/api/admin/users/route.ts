@@ -15,7 +15,7 @@ async function checkAdminAccess() {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!profileRes.ok) return false;
-    
+
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
@@ -52,7 +52,7 @@ export async function PUT(request: Request) {
 
   try {
     const { id, roles } = await request.json();
-    
+
     if (!id || !Array.isArray(roles)) {
       return NextResponse.json({ error: "Invalid data" }, { status: 400 });
     }
