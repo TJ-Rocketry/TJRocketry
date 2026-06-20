@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { inventoryItems, inventoryLogs } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -7,10 +9,11 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
     const where = category ? { category } : {};
-    const items = await prisma.inventoryItem.findMany({
-      where,
-      orderBy: [{ subCategory: "asc" }, { name: "asc" }],
-    });
+    const items = await db
+      .select()
+      .from(inventoryItems)
+      .where(category ? eq(inventoryItems.category, category) : undefined)
+      .orderBy(asc(inventoryItems.subCategory), asc(inventoryItems.name));
     return NextResponse.json({ items });
   } catch {
     return NextResponse.json({ error: "Failed to fetch inventory" }, { status: 500 });
@@ -29,13 +32,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const item = await prisma.inventoryItem.create({
-      data: { name, location, type, quantity: quantity || 0, highValue: highValue || false, category, subCategory, imageUrl },
-    });
+    const [item] = await db
+      .insert(inventoryItems)
+      .values({
+        name,
+        location,
+        type,
+        quantity: quantity || 0,
+        highValue: highValue || false,
+        category,
+        subCategory,
+        imageUrl,
+        updatedAt: new Date(),
+      })
+      .returning();
 
     if (quantity > 0) {
-      await prisma.inventoryLog.create({
-        data: { itemId: item.id, userId: user.id, change: quantity, type: "set" },
+      await db.insert(inventoryLogs).values({
+        itemId: item.id,
+        userId: user.id,
+        change: quantity,
+        type: "set",
       });
     }
 

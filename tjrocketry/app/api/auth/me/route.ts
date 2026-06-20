@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -24,9 +26,11 @@ export async function GET() {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({
-      where: { ionId },
-    });
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.ionId, ionId))
+      .limit(1);
 
     if (!user) {
       return NextResponse.json({ authenticated: false }, { status: 401 });

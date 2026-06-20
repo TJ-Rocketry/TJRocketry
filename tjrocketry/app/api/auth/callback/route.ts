@@ -1,7 +1,9 @@
 import { client, redirect_uri } from "@/lib/ion-oauth";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 
 function extractUsername(email: string | null): string | null {
   if (!email) return null;
@@ -49,29 +51,27 @@ export async function GET(request: Request) {
 
     const isAutoAdmin = username === "2028efeldman";
 
-    const user = await prisma.user.upsert({
-      where: { ionId },
-      update: {
-        email,
-        name,
-        username,
-        classYear,
-      },
-      create: {
+    const [user] = await db
+      .insert(users)
+      .values({
         ionId,
         email,
         name,
         username,
         classYear,
         roles: isAutoAdmin ? ["user", "admin"] : ["user"],
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: users.ionId,
+        set: { email, name, username, classYear },
+      })
+      .returning();
 
     if (isAutoAdmin && !user.roles.includes("admin")) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { roles: [...user.roles, "admin"] },
-      });
+      await db
+        .update(users)
+        .set({ roles: [...user.roles, "admin"] })
+        .where(eq(users.id, user.id));
     }
 
     const cookieStore = await cookies();

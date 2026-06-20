@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, gte, desc, asc, and } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { attendanceBlocks, attendanceRecords } from "@/lib/db/schema";
 import { checkAdminOrSponsorAccess, checkAdminSponsorOrOfficerAccess } from "@/lib/auth";
 
 export async function GET(request: Request) {
@@ -10,32 +12,32 @@ export async function GET(request: Request) {
   if (range === "week") {
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
-    const blocks = await prisma.attendanceBlock.findMany({
-      where: { date: { gte: weekAgo } },
-      include: {
-        records: { include: { user: true } },
+    const blocks = await db.query.attendanceBlocks.findMany({
+      where: gte(attendanceBlocks.date, weekAgo),
+      with: {
+        records: { with: { user: true } },
       },
-      orderBy: { date: "desc" },
+      orderBy: desc(attendanceBlocks.date),
     });
     return NextResponse.json({ blocks });
   }
 
   if (date) {
-    const blocks = await prisma.attendanceBlock.findMany({
-      where: { date: new Date(date) },
-      include: {
-        records: { include: { user: true } },
+    const blocks = await db.query.attendanceBlocks.findMany({
+      where: eq(attendanceBlocks.date, new Date(date)),
+      with: {
+        records: { with: { user: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: desc(attendanceBlocks.createdAt),
     });
     return NextResponse.json({ blocks });
   }
 
-  const blocks = await prisma.attendanceBlock.findMany({
-    include: {
-      records: { include: { user: true } },
+  const blocks = await db.query.attendanceBlocks.findMany({
+    with: {
+      records: { with: { user: true } },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: desc(attendanceBlocks.createdAt),
   });
   return NextResponse.json({ blocks });
 }
@@ -53,13 +55,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const block = await prisma.attendanceBlock.create({
-      data: {
+    const [block] = await db
+      .insert(attendanceBlocks)
+      .values({
         blockType,
         date: new Date(date),
         code,
-      },
-    });
+      })
+      .returning();
 
     return NextResponse.json({ success: true, block });
   } catch (error) {
@@ -80,14 +83,15 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const block = await prisma.attendanceBlock.update({
-      where: { id: Number(id) },
-      data: {
+    const [block] = await db
+      .update(attendanceBlocks)
+      .set({
         blockType,
         date: new Date(date),
         code,
-      },
-    });
+      })
+      .where(eq(attendanceBlocks.id, Number(id)))
+      .returning();
 
     return NextResponse.json({ success: true, block });
   } catch (error) {
@@ -109,9 +113,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Missing block id" }, { status: 400 });
     }
 
-    await prisma.attendanceBlock.delete({
-      where: { id: Number(id) },
-    });
+    await db.delete(attendanceBlocks).where(eq(attendanceBlocks.id, Number(id)));
 
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -131,10 +133,11 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Missing block id" }, { status: 400 });
     }
 
-    const block = await prisma.attendanceBlock.update({
-      where: { id: Number(id) },
-      data: { isClosed },
-    });
+    const [block] = await db
+      .update(attendanceBlocks)
+      .set({ isClosed })
+      .where(eq(attendanceBlocks.id, Number(id)))
+      .returning();
 
     return NextResponse.json({ success: true, block });
   } catch (error) {

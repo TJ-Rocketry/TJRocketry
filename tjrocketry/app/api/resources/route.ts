@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, desc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { resourceFiles } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(request: Request) {
@@ -8,10 +10,11 @@ export async function GET(request: Request) {
 
   try {
     const where = category ? { category } : {};
-    const files = await prisma.resourceFile.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-    });
+    const files = await db
+      .select()
+      .from(resourceFiles)
+      .where(category ? eq(resourceFiles.category, category) : undefined)
+      .orderBy(desc(resourceFiles.createdAt));
     return NextResponse.json({ files });
   } catch {
     return NextResponse.json({ error: "Failed to fetch files" }, { status: 500 });
@@ -30,9 +33,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const file = await prisma.resourceFile.create({
-      data: { name, description, fileUrl, fileSize: fileSize ? Number(fileSize) : null, category, subCategory },
-    });
+    const [file] = await db
+      .insert(resourceFiles)
+      .values({ name, description, fileUrl, fileSize: fileSize ? Number(fileSize) : null, category, subCategory })
+      .returning();
 
     return NextResponse.json({ success: true, file });
   } catch {
@@ -52,17 +56,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    const file = await prisma.resourceFile.update({
-      where: { id: Number(id) },
-      data: {
+    const [file] = await db
+      .update(resourceFiles)
+      .set({
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
         ...(fileUrl !== undefined && { fileUrl }),
         ...(fileSize !== undefined && { fileSize: fileSize ? Number(fileSize) : null }),
         ...(category !== undefined && { category }),
         ...(subCategory !== undefined && { subCategory }),
-      },
-    });
+      })
+      .where(eq(resourceFiles.id, Number(id)))
+      .returning();
 
     return NextResponse.json({ success: true, file });
   } catch {
@@ -83,9 +88,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    await prisma.resourceFile.delete({
-      where: { id: Number(id) },
-    });
+    await db.delete(resourceFiles).where(eq(resourceFiles.id, Number(id)));
 
     return NextResponse.json({ success: true });
   } catch {

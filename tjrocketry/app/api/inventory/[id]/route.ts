@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { inventoryItems, inventoryLogs } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -12,18 +14,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
     const { name, location, type, quantity, highValue, category, subCategory, imageUrl } = await req.json();
 
-    const existing = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id) } });
+    const [existing] = await db
+      .select()
+      .from(inventoryItems)
+      .where(eq(inventoryItems.id, parseInt(id)))
+      .limit(1);
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const item = await prisma.inventoryItem.update({
-      where: { id: parseInt(id) },
-      data: { name, location, type, quantity, highValue, category, subCategory, imageUrl },
-    });
+    const [item] = await db
+      .update(inventoryItems)
+      .set({ name, location, type, quantity, highValue, category, subCategory, imageUrl, updatedAt: new Date() })
+      .where(eq(inventoryItems.id, parseInt(id)))
+      .returning();
 
     if (quantity !== undefined && quantity !== existing.quantity) {
       const diff = quantity - existing.quantity;
-      await prisma.inventoryLog.create({
-        data: { itemId: item.id, userId: user.id, change: diff, type: "set" },
+      await db.insert(inventoryLogs).values({
+        itemId: item.id,
+        userId: user.id,
+        change: diff,
+        type: "set",
       });
     }
 
@@ -41,7 +51,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   try {
     const { id } = await params;
-    await prisma.inventoryItem.delete({ where: { id: parseInt(id) } });
+    await db.delete(inventoryItems).where(eq(inventoryItems.id, parseInt(id)));
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Failed to delete item" }, { status: 500 });

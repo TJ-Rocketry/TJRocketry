@@ -1,48 +1,44 @@
-const { Pool } = require('pg');
-const { PrismaPg } = require('@prisma/adapter-pg');
-const { PrismaClient } = require('@prisma/client');
+const { Pool } = require("pg");
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
-});
-
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
 async function main() {
   const ionId = process.argv[2];
 
   if (!ionId) {
-    console.error('Please provide an Ion ID: node setadmin.js <ionId>');
+    console.error("Please provide an Ion ID: node setadmin.js <ionId>");
     process.exit(1);
   }
 
-  const user = await prisma.user.findUnique({
-    where: { ionId }
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
   });
 
-  if (!user) {
-    console.error(`User with Ion ID ${ionId} not found.`);
-    process.exit(1);
-  }
+  try {
+    const result = await pool.query('SELECT * FROM "User" WHERE "ionId" = $1', [
+      ionId,
+    ]);
 
-  const roles = new Set(user.roles);
-  roles.add('admin');
-
-  await prisma.user.update({
-    where: { ionId },
-    data: {
-      roles: Array.from(roles),
+    if (result.rows.length === 0) {
+      console.error(`User with Ion ID ${ionId} not found.`);
+      process.exit(1);
     }
-  });
 
-  console.log(`Successfully added 'admin' role to user ${ionId} (${user.name || 'Unknown Name'}).`);
+    const user = result.rows[0];
+    const roles = [...new Set([...user.roles, "admin"])];
+
+    await pool.query('UPDATE "User" SET "roles" = $1 WHERE "id" = $2', [
+      roles,
+      user.id,
+    ]);
+
+    console.log(
+      `Successfully added 'admin' role to user ${ionId} (${user.name || "Unknown Name"}).`,
+    );
+  } finally {
+    await pool.end();
+  }
 }
 
-main()
-  .catch(e => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 
 async function checkAdminAccess() {
   const cookieStore = await cookies();
@@ -17,7 +19,7 @@ async function checkAdminAccess() {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({ where: { ionId } });
+    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
     if (!user || !user.roles.includes("admin")) return false;
 
     return true;
@@ -33,10 +35,8 @@ export async function GET() {
   }
 
   try {
-    const users = await prisma.user.findMany({
-      orderBy: { id: "asc" }
-    });
-    return NextResponse.json({ users });
+    const allUsers = await db.select().from(users).orderBy(users.id);
+    return NextResponse.json({ users: allUsers });
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
   }
@@ -55,10 +55,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Invalid data" }, { status: 400 });
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: Number(id) },
-      data: { roles },
-    });
+    const [updatedUser] = await db
+      .update(users)
+      .set({ roles })
+      .where(eq(users.id, Number(id)))
+      .returning();
 
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {

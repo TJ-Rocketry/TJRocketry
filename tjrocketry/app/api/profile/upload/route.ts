@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: Request) {
@@ -54,10 +56,10 @@ export async function POST(request: Request) {
 
     const pfpUrl = publicUrlData.publicUrl;
 
-    await prisma.user.update({
-      where: { ionId },
-      data: { pfpUrl },
-    });
+    await db
+      .update(users)
+      .set({ pfpUrl })
+      .where(eq(users.ionId, ionId));
 
     return NextResponse.json({ success: true, pfpUrl });
   } catch (error) {

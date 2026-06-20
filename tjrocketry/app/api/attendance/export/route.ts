@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, asc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { attendanceRecords, users } from "@/lib/db/schema";
 import { checkAdminOrSponsorAccess } from "@/lib/auth";
 
 export async function GET(request: Request) {
@@ -15,15 +17,15 @@ export async function GET(request: Request) {
     let records;
 
     if (blockId) {
-      records = await prisma.attendanceRecord.findMany({
-        where: { blockId: Number(blockId) },
-        include: { user: true },
-        orderBy: { user: { name: "asc" } },
+      records = await db.query.attendanceRecords.findMany({
+        where: eq(attendanceRecords.blockId, Number(blockId)),
+        with: { user: true },
+        orderBy: asc(users.name),
       });
     } else {
-      records = await prisma.attendanceRecord.findMany({
-        include: { user: true },
-        orderBy: { user: { name: "asc" } },
+      records = await db.query.attendanceRecords.findMany({
+        with: { user: true },
+        orderBy: asc(users.name),
       });
     }
 

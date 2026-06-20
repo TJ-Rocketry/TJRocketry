@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, desc } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import {
+  checkoutRequests,
+  inventoryItems,
+  notifications,
+  users,
+} from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET() {
   try {
-    const requests = await prisma.checkoutRequest.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        user: { select: { name: true, username: true, id: true } },
-        item: { select: { name: true, category: true, subCategory: true } },
-        approver: { select: { name: true } },
+    const requests = await db.query.checkoutRequests.findMany({
+      orderBy: desc(checkoutRequests.createdAt),
+      with: {
+        user: { columns: { name: true, username: true, id: true } },
+        item: { columns: { name: true, category: true, subCategory: true } },
+        approver: { columns: { name: true } },
       },
     });
     return NextResponse.json({ requests });
@@ -28,26 +36,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const item = await prisma.inventoryItem.findUnique({ where: { id: itemId } });
+    const [item] = await db
+      .select()
+      .from(inventoryItems)
+      .where(eq(inventoryItems.id, itemId))
+      .limit(1);
     if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
     if (item.quantity < quantity) return NextResponse.json({ error: "Insufficient quantity" }, { status: 400 });
 
-    const request = await prisma.checkoutRequest.create({
-      data: { itemId, userId: user.id, quantity, status: "pending" },
-    });
+    const [request] = await db
+      .insert(checkoutRequests)
+      .values({ itemId, userId: user.id, quantity, status: "pending", updatedAt: new Date() })
+      .returning();
 
-    const roleUsers = await prisma.user.findMany({
-      where: { roles: { hasSome: ["admin", "sponsor", "officer"] } },
-    });
+    const roleUsers = await db
+      .select()
+      .from(users)
+      .where(sql`${users.roles} && ARRAY['admin','sponsor','officer']::text[]`);
 
     for (const admin of roleUsers) {
-      await prisma.notification.create({
-        data: {
-          userId: admin.id,
-          title: "Checkout Request",
-          message: `${user.name || user.username} requested ${quantity}x ${item.name}`,
-          link: "/inventory/requests",
-        },
+      await db.insert(notifications).values({
+        userId: admin.id,
+        title: "Checkout Request",
+        message: `${user.name || user.username} requested ${quantity}x ${item.name}`,
+        link: "/inventory/requests",
       });
     }
 

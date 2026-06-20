@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 
 export async function checkAdminOrSponsorAccess(): Promise<boolean> {
   const cookieStore = await cookies();
@@ -16,7 +18,7 @@ export async function checkAdminOrSponsorAccess(): Promise<boolean> {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({ where: { ionId } });
+    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
     if (!user) return false;
     return user.roles.includes("admin") || user.roles.includes("sponsor");
   } catch {
@@ -39,7 +41,7 @@ export async function checkAdminSponsorOrOfficerAccess(): Promise<boolean> {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({ where: { ionId } });
+    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
     if (!user) return false;
     return user.roles.includes("admin") || user.roles.includes("sponsor") || user.roles.includes("officer");
   } catch {
@@ -62,7 +64,7 @@ export async function checkAdminAccess(): Promise<boolean> {
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({ where: { ionId } });
+    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
     if (!user || !user.roles.includes("admin")) return false;
     return true;
   } catch {
@@ -85,7 +87,7 @@ export async function getCurrentUser(): Promise<{ id: number; ionId: string; nam
     const profileData = await profileRes.json();
     const ionId = String(profileData.id);
 
-    const user = await prisma.user.findUnique({ where: { ionId } });
+    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
     if (!user) return null;
     return { id: user.id, ionId: user.ionId, name: user.name, username: user.username, roles: user.roles };
   } catch {

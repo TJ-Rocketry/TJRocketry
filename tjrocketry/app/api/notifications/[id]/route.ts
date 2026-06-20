@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { notifications } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -8,18 +10,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   try {
     const { id } = await params;
-    const notification = await prisma.notification.findUnique({
-      where: { id: parseInt(id) },
-    });
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.id, parseInt(id)))
+      .limit(1);
 
     if (!notification || notification.userId !== user.id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    const updated = await prisma.notification.update({
-      where: { id: parseInt(id) },
-      data: { read: true },
-    });
+    const [updated] = await db
+      .update(notifications)
+      .set({ read: true })
+      .where(eq(notifications.id, parseInt(id)))
+      .returning();
 
     return NextResponse.json({ notification: updated });
   } catch {
@@ -33,17 +38,17 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
 
   try {
     const { id } = await params;
-    const notification = await prisma.notification.findUnique({
-      where: { id: parseInt(id) },
-    });
+    const [notification] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.id, parseInt(id)))
+      .limit(1);
 
     if (!notification || notification.userId !== user.id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    await prisma.notification.delete({
-      where: { id: parseInt(id) },
-    });
+    await db.delete(notifications).where(eq(notifications.id, parseInt(id)));
 
     return NextResponse.json({ success: true });
   } catch {

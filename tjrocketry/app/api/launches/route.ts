@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { eq, desc } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { launchEvents } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET() {
   try {
-    const launches = await prisma.launchEvent.findMany({
-      orderBy: { date: "desc" },
-      take: 10,
-    });
+    const launches = await db
+      .select()
+      .from(launchEvents)
+      .orderBy(desc(launchEvents.date))
+      .limit(10);
     return NextResponse.json({ launches });
   } catch {
     return NextResponse.json({ error: "Failed to fetch launches" }, { status: 500 });
@@ -26,16 +29,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    const launch = await prisma.launchEvent.create({
-      data: {
+    const [launch] = await db
+      .insert(launchEvents)
+      .values({
         title,
         date: new Date(date),
         startTime: startTime || null,
         endTime: endTime || null,
         notes: notes || null,
         location: location || null,
-      },
-    });
+      })
+      .returning();
 
     return NextResponse.json({ success: true, launch });
   } catch (e: any) {
@@ -55,17 +59,18 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    const launch = await prisma.launchEvent.update({
-      where: { id: Number(id) },
-      data: {
+    const [launch] = await db
+      .update(launchEvents)
+      .set({
         ...(title && { title }),
         ...(date && { date: new Date(date) }),
         ...(startTime !== undefined && { startTime }),
         ...(endTime !== undefined && { endTime }),
         ...(notes !== undefined && { notes }),
         ...(location !== undefined && { location }),
-      },
-    });
+      })
+      .where(eq(launchEvents.id, Number(id)))
+      .returning();
 
     return NextResponse.json({ success: true, launch });
   } catch {
@@ -86,9 +91,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Missing id" }, { status: 400 });
     }
 
-    await prisma.launchEvent.delete({
-      where: { id: Number(id) },
-    });
+    await db.delete(launchEvents).where(eq(launchEvents.id, Number(id)));
 
     return NextResponse.json({ success: true });
   } catch {

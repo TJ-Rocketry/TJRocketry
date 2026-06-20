@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "prisma generate && next build",
+    "build": "next build",
+    "db:push": "drizzle-kit push",
     "dev": "next dev",
     "start": "next start",
     "lint": "eslint",
@@ -14,9 +15,8 @@
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.11",
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
     "@supabase/supabase-js": "^2.108.2",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.18.0",
     "next": "16.2.9",
     "pg": "^8.21.0",
@@ -32,9 +32,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/simple-oauth2": "^5.0.8",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
-    "prisma": "^7.8.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^4.102.0"
