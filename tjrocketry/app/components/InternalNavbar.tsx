@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
-import { ChevronDown, LogOut, User as UserIcon, Menu, X, Package, BookOpen, ShieldAlert } from "lucide-react";
+import { ChevronDown, User as UserIcon, Menu, X } from "lucide-react";
 import NotificationPanel from "./NotificationPanel";
 
 export default function InternalNavbar() {
@@ -46,6 +46,7 @@ export default function InternalNavbar() {
     { href: "/home", label: "Home" },
     { href: "/inventory", label: "Inventory" },
     { href: "/resources", label: "Resources" },
+    { href: "/teams", label: "Teams" },
   ];
 
   return (

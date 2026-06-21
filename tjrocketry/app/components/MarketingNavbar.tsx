@@ -9,6 +9,7 @@ const marketingLinks = [
   { href: "/projects/current", label: "Projects" },
   { href: "/sponsors", label: "Sponsors" },
   { href: "/support", label: "Support" },
+  { href: "/teams", label: "Teams" },
 ];
 
 export default function MarketingNavbar() {

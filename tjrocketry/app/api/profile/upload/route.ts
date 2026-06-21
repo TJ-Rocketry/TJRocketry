@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(request: Request) {
   try {
@@ -35,10 +35,10 @@ export async function POST(request: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split(".").pop();
+    const ext = file.name.split(".").pop() || "bin";
     const filename = `avatars/${ionId}-${Date.now()}.${ext}`;
 
-    const { error: uploadError } = await supabaseAdmin.storage
+    const { error: uploadError } = await getSupabaseAdmin().storage
       .from("profiles")
       .upload(filename, buffer, {
         contentType: file.type,
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Upload failed" }, { status: 500 });
     }
 
-    const { data: publicUrlData } = supabaseAdmin.storage
+    const { data: publicUrlData } = getSupabaseAdmin().storage
       .from("profiles")
       .getPublicUrl(filename);
 

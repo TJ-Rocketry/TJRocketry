@@ -7,10 +7,10 @@ import {
   timestamp,
   date,
   uniqueIndex,
+  unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-// ── User ──
 export const users = pgTable(
   "User",
   {
@@ -27,7 +27,6 @@ export const users = pgTable(
   emailIdx: uniqueIndex("User_email_key").on(table.email),
 }));
 
-// ── AttendanceBlock ──
 export const attendanceBlocks = pgTable("AttendanceBlock", {
   id: serial("id").primaryKey(),
   blockType: text("blockType").notNull(),
@@ -39,7 +38,6 @@ export const attendanceBlocks = pgTable("AttendanceBlock", {
     .notNull(),
 });
 
-// ── AttendanceRecord ──
 export const attendanceRecords = pgTable(
   "AttendanceRecord",
   {
@@ -59,7 +57,6 @@ export const attendanceRecords = pgTable(
   }),
 );
 
-// ── InventoryItem ──
 export const inventoryItems = pgTable("InventoryItem", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -112,7 +109,6 @@ export const checkoutRequests = pgTable("CheckoutRequest", {
   updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).notNull(),
 });
 
-// ── Notification ──
 export const notifications = pgTable("Notification", {
   id: serial("id").primaryKey(),
   userId: integer("userId")
@@ -127,7 +123,6 @@ export const notifications = pgTable("Notification", {
     .notNull(),
 });
 
-// ── LaunchEvent ──
 export const launchEvents = pgTable("LaunchEvent", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -141,21 +136,46 @@ export const launchEvents = pgTable("LaunchEvent", {
     .notNull(),
 });
 
-// ── ResourceFile ──
 export const resourceFiles = pgTable("ResourceFile", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
-  fileUrl: text("fileUrl").notNull(),
+  fileUrl: text("fileUrl"),
   fileSize: integer("fileSize"),
   category: text("category").notNull(),
   subCategory: text("subCategory"),
+  isFolder: boolean("isFolder").default(false).notNull(),
+  parentId: integer("parentId"),
+  uploadedById: integer("uploadedById"),
   createdAt: timestamp("createdAt", { precision: 3, mode: "date" })
     .defaultNow()
     .notNull(),
 });
 
-// ── Relations ──
+export const filePermissions = pgTable("FilePermission", {
+  id: serial("id").primaryKey(),
+  fileId: integer("fileId").notNull().references(() => resourceFiles.id, { onDelete: "cascade" }),
+  accessType: text("accessType").notNull(), // "everyone", "arc", "sli", "officers", "admin", "team"
+  teamId: integer("teamId"),
+});
+
+export const teams = pgTable("Team", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  arcId: text("arcId"),
+  createdAt: timestamp("createdAt", { precision: 3, mode: "date" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const teamMembers = pgTable("TeamMember", {
+  id: serial("id").primaryKey(),
+  teamId: integer("teamId").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: integer("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"), // "captain" or "member"
+}, (table) => ({
+  uniqueTeamUser: unique("TeamMember_teamId_userId_key").on(table.teamId, table.userId),
+}));
 
 export const usersRelations = relations(users, ({ many }) => ({
   attendanceRecords: many(attendanceRecords),
@@ -231,6 +251,51 @@ export const checkoutRequestsRelations = relations(
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(users, {
     fields: [notifications.userId],
+    references: [users.id],
+  }),
+}));
+
+export const resourceFilesRelations = relations(resourceFiles, ({ one, many }) => ({
+  parent: one(resourceFiles, {
+    fields: [resourceFiles.parentId],
+    references: [resourceFiles.id],
+  }),
+  children: many(resourceFiles, { relationName: "parent" }),
+  uploadedBy: one(users, {
+    fields: [resourceFiles.uploadedById],
+    references: [users.id],
+  }),
+  permissions: many(filePermissions),
+}));
+
+export const filePermissionsRelations = relations(filePermissions, ({ one }) => ({
+  file: one(resourceFiles, {
+    fields: [filePermissions.fileId],
+    references: [resourceFiles.id],
+  }),
+  team: one(teams, {
+    fields: [filePermissions.teamId],
+    references: [teams.id],
+  }),
+}));
+
+export const teamsRelations = relations(teams, ({ many }) => ({
+  members: many(teamMembers),
+}));
+
+export const appSettings = pgTable("AppSetting", {
+  key: text("key").primaryKey(),
+  value: text("value"),
+  updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).defaultNow().notNull(),
+});
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+  team: one(teams, {
+    fields: [teamMembers.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [teamMembers.userId],
     references: [users.id],
   }),
 }));

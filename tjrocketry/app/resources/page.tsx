@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, FileArchive, ExternalLink, Calendar as CalendarIcon, MapPin, Clock } from "lucide-react";
+import { BookOpen, FileArchive, ExternalLink, Calendar as CalendarIcon, MapPin, Clock, Users } from "lucide-react";
 
 type LaunchEvent = {
   id: number;
@@ -37,6 +37,13 @@ const sections = [
     icon: ExternalLink,
     image: "/images/botrlaunch.jpg",
   },
+  {
+    key: "teams",
+    label: "Teams",
+    desc: "View team rosters and captains",
+    icon: Users,
+    image: "/images/logo.png",
+  },
 ];
 
 export default function ResourcesPage() {
@@ -62,26 +69,6 @@ export default function ResourcesPage() {
   }, []);
 
   if (loading || !user) return <div className="pt-32 text-center text-white">Loading...</div>;
-
-  const today = new Date();
-  const nextMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  nextMonth.setMonth(nextMonth.getMonth() + 1);
-  const daysInMonth = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
-  const firstDay = nextMonth.getDay();
-  const monthName = nextMonth.toLocaleString("default", { month: "long", year: "numeric" });
-
-  const calendarDays: (number | null)[] = Array.from({ length: firstDay }, () => null);
-  for (let d = 1; d <= daysInMonth; d++) calendarDays.push(d);
-
-  const launchDates = new Set(
-    launches
-      .filter(l => {
-        const d = new Date(l.date);
-        return d.getMonth() === nextMonth.getMonth() && d.getFullYear() === nextMonth.getFullYear();
-      })
-      .map(l => new Date(l.date).getDate().toString())
-  );
-
   const nextLaunch = launches
     .filter(l => new Date(l.date) >= new Date(new Date().toISOString().split("T")[0]))
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] || null;
@@ -91,9 +78,8 @@ export default function ResourcesPage() {
       <div className="max-w-5xl mx-auto px-4 mt-8">
         <h1 className="text-2xl font-bold mb-6">Resources</h1>
 
-        <div className="bg-neutral-800 border border-neutral-700 p-6 mb-8">
+        <div className="bg-neutral-900 border border-neutral-700 p-6 mb-8">
           <div className="flex items-center gap-2 mb-4">
-            <CalendarIcon className="w-5 h-5 text-gray-400" />
             <h2 className="text-lg font-semibold">Launch Schedule</h2>
           </div>
 
@@ -110,32 +96,13 @@ export default function ResourcesPage() {
             )}
           </div>
 
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-              <div key={d} className="text-xs text-gray-500 font-medium py-1">{d}</div>
-            ))}
-            {calendarDays.map((day, i) => (
-              <div key={i}
-                className={`text-sm py-1.5 relative ${
-                  day === null ? "" :
-                  day === today.getDate() && nextMonth.getMonth() === today.getMonth() && nextMonth.getFullYear() === today.getFullYear()
-                    ? "bg-white text-neutral-900 font-semibold" : "text-gray-300"
-                }`}
-              >
-                {day || ""}
-                {day && launchDates.has(day.toString()) && (
-                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full" />
-                )}
-              </div>
-            ))}
-          </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6">
           {sections.map(sec => (
             <Link
               key={sec.key}
-              href={`/resources/${sec.key}`}
+              href={`/resources/${sec.key === "teams" ? "../teams" : sec.key}`}
               className="group bg-neutral-800 border border-neutral-700 overflow-hidden hover:border-white/30 transition-all"
             >
               <div className="h-40 overflow-hidden">
