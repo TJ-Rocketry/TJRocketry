@@ -1,4 +1,13 @@
 # TJ Rocketry Website
+
+## Demo Video 
+
+
+https://github.com/user-attachments/assets/2cdc80c4-b9b9-4684-85db-bbb7e0cda7bb
+
+
+## Description
+
 This is a platform for the TJ Rocketry club, equipped with postgressql for storage of both user data and inventory.
 
 For those that cannot access much of the platform due to the requirement of being a TJ student, I attached below many screenshots
