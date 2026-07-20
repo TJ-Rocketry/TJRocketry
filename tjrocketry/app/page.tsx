@@ -20,15 +20,13 @@ export default function Home() {
     <div className="bg-neutral-900">
       <div className="relative w-full h-screen overflow-hidden">
         <div className="absolute inset-0 z-10">
-          <video
-            src="/videos/hero_final.mp4"
-            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          <img
+            src="/images/hero.jpg"
+            alt="Hero"
+            className="absolute inset-0 w-full h-full object-cover"
             style={{
               objectPosition: "center 50%",
             }}
-            autoPlay
-            muted
-            playsInline
           />
           <div className="absolute inset-0 bg-black/20" />
         </div>
@@ -42,7 +40,7 @@ export default function Home() {
 
         <div className="relative z-20 h-full flex flex-col items-center justify-center text-center px-4 select-none">
           <h1 className="text-5xl md:text-8xl text-white tracking-normal font-normal mb-6"
-              style={{ fontFamily: "'DM Serif Display', sans-serif", textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
+              style={{ fontFamily: "var(--font-special-gothic)", textShadow: "0 2px 20px rgba(0,0,0,0.8)" }}>
             TJ Rocketry
           </h1>
           <p className="text-lg md:text-2xl text-white max-w-3xl font-light leading-relaxed tracking-wide"
@@ -55,8 +53,8 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-48 space-y-64">
-        <section className="grid md:grid-cols-2 gap-16 items-center">
+      <div className="max-w-7xl mx-auto px-6 py-48 space-y-64">
+        <section className="grid md:grid-cols-[0.9fr_1.6fr] gap-10 md:gap-14 items-center">
           <div className="order-2 md:order-1">
             <h2 className="text-2xl text-white mb-6 uppercase tracking-widest">01. Design</h2>
             <p className="text-white/50 leading-relaxed">
@@ -65,7 +63,7 @@ export default function Home() {
           </div>
           <img src="/images/openrocket.png" alt="Simulation" className="w-full h-auto order-1 md:order-2" />
         </section>
-        <section className="grid md:grid-cols-2 gap-16 items-center">
+        <section className="grid md:grid-cols-[1.6fr_0.9fr] gap-10 md:gap-14 items-center">
           <img src="/images/assembleandbuild.jpg" alt="Assembly" className="w-full h-auto" />
           <div>
             <h2 className="text-2xl text-white mb-6 uppercase tracking-widest">02. Fabricate</h2>
@@ -75,7 +73,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="grid md:grid-cols-2 gap-16 items-center">
+        <section className="grid md:grid-cols-[1.6fr_0.9fr] gap-10 md:gap-14 items-center">
           <img src="/images/prepareforeachlaunch.jpg" alt="Preparation" className="w-full h-auto" />
           <div>
             <h2 className="text-2xl text-white mb-6 uppercase tracking-widest">03. Launch</h2>
@@ -85,7 +83,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="grid md:grid-cols-2 gap-16 items-center">
+        <section className="grid md:grid-cols-[0.9fr_1.6fr] gap-10 md:gap-14 items-center">
           <div className="order-2 md:order-1">
             <h2 className="text-2xl text-white mb-6 uppercase tracking-widest">04. Ascend</h2>
             <p className="text-white/50 leading-relaxed">
@@ -95,7 +93,7 @@ export default function Home() {
           <img src="/images/botrlaunch.jpg" alt="Launch" className="w-full h-auto order-1 md:order-2" />
         </section>
 
-        <section className="grid md:grid-cols-2 gap-16 items-center">
+        <section className="grid md:grid-cols-[1.6fr_0.9fr] gap-10 md:gap-14 items-center">
           <img src="/images/battleoftherockets.png" alt="Competition" className="w-full h-auto" />
           <div>
             <h2 className="text-2xl text-white mb-6 uppercase tracking-widest">05. Compete</h2>
