@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, desc } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { teams, teamMembers } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { teams, teamMembers, users } from "@/lib/db/schema";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -10,37 +10,37 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const isArcOrOfficerOrAdmin = user.roles.some(r =>
-    ["admin", "sponsor", "officer", "ARCmember"].includes(r)
-  );
-
-  if (!isArcOrOfficerOrAdmin) {
-    const userTeams = await db
-      .select({
-        id: teams.id,
-        name: teams.name,
-        arcId: teams.arcId,
-        createdAt: teams.createdAt,
-      })
-      .from(teamMembers)
-      .innerJoin(teams, eq(teamMembers.teamId, teams.id))
-      .orderBy(teams.id);
-
-    return NextResponse.json({ teams: userTeams });
-  }
+  const seesAll = user.roles.some(r => ["admin", "sponsor", "officer", "ARCmember"].includes(r));
 
   try {
-    const allTeams = await db
-      .select({
-        id: teams.id,
-        name: teams.name,
-        arcId: teams.arcId,
-        createdAt: teams.createdAt,
-      })
-      .from(teams)
-      .orderBy(teams.name);
+    const teamRows = seesAll
+      ? await db.select({ id: teams.id, name: teams.name, arcId: teams.arcId }).from(teams).orderBy(teams.name)
+      : await db
+          .select({ id: teams.id, name: teams.name, arcId: teams.arcId })
+          .from(teamMembers)
+          .innerJoin(teams, eq(teamMembers.teamId, teams.id))
+          .where(eq(teamMembers.userId, user.id))
+          .orderBy(teams.name);
 
-    return NextResponse.json({ teams: allTeams });
+    const members = teamRows.length
+      ? await db
+          .select({
+            id: teamMembers.id,
+            teamId: teamMembers.teamId,
+            userId: teamMembers.userId,
+            role: teamMembers.role,
+            name: users.name,
+            username: users.username,
+          })
+          .from(teamMembers)
+          .leftJoin(users, eq(teamMembers.userId, users.id))
+          .where(inArray(teamMembers.teamId, teamRows.map(t => t.id)))
+          .orderBy(users.name)
+      : [];
+
+    return NextResponse.json({
+      teams: teamRows.map(t => ({ ...t, members: members.filter(m => m.teamId === t.id) })),
+    });
   } catch (err) {
     console.error("GET /api/teams error:", err);
     return NextResponse.json({ error: "Failed to fetch teams" }, { status: 500 });
@@ -49,7 +49,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

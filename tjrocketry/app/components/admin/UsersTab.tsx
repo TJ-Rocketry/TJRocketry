@@ -1,4 +1,6 @@
 "use client";
+import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import { UserType } from "./types";
 
 const ROLES = ["admin", "sponsor", "officer", "ARCmember", "BOTRmember", "user"];
@@ -6,50 +8,96 @@ const ROLES = ["admin", "sponsor", "officer", "ARCmember", "BOTRmember", "user"]
 export default function UsersTab({
   users,
   onRoleToggle,
+  onPositionSave,
 }: {
   users: UserType[];
   onRoleToggle: (userId: number, role: string, currentRoles: string[]) => void;
+  onPositionSave: (userId: number, position: string) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(u =>
+      [u.name, u.username, u.email, ...u.roles].some(v => v?.toLowerCase().includes(q)),
+    );
+  }, [users, query]);
+
+  const savePosition = (u: UserType) => {
+    const draft = drafts[u.id];
+    if (draft === undefined || draft.trim() === (u.position ?? "")) return;
+    onPositionSave(u.id, draft);
+  };
+
   return (
-    <div className="border border-neutral-700">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
+    <div className="space-y-4">
+      <div className="relative max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+        <input className="field pl-8" placeholder="Search name, email, role…" value={query} onChange={e => setQuery(e.target.value)} />
+      </div>
+      <div className="border border-line overflow-x-auto">
+        <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-neutral-700">
-              <th className="p-3 text-xs text-gray-400 font-medium">ID</th>
-              <th className="p-3 text-xs text-gray-400 font-medium">Name</th>
-              <th className="p-3 text-xs text-gray-400 font-medium">Email</th>
-              <th className="p-3 text-xs text-gray-400 font-medium">Roles</th>
+            <tr className="border-b border-line text-xs text-muted">
+              <th className="p-3 font-medium">ID</th>
+              <th className="p-3 font-medium">Name</th>
+              <th className="p-3 font-medium hidden md:table-cell">Email</th>
+              <th className="p-3 font-medium">Officer position</th>
+              <th className="p-3 font-medium">Roles</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-800">
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td className="p-3">
-                  <span className="text-sm text-gray-400">#{u.id}</span>
-                  <span className="text-xs text-gray-600 ml-1">{u.ionId}</span>
-                </td>
-                <td className="p-3">
-                  <div className="text-sm">{u.name || "N/A"}</div>
-                  <div className="text-xs text-gray-500">{u.username || "N/A"}</div>
-                </td>
-                <td className="p-3 text-sm text-gray-400">{u.email || "N/A"}</td>
-                <td className="p-3">
-                  <div className="flex flex-wrap gap-1">
-                    {ROLES.map(role => {
-                      const active = u.roles.includes(role);
-                      return (
-                        <button key={role}
-                          onClick={() => onRoleToggle(u.id, role, u.roles)}
-                          className={`px-2 py-0.5 text-xs border ${active ? "border-white text-white" : "border-neutral-600 text-gray-500"}`}>
-                          {role}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </td>
-              </tr>
-            ))}
+          <tbody>
+            {visible.map(u => {
+              const isOfficer = u.roles.includes("officer");
+              return (
+                <tr key={u.id} className="border-b border-line last:border-0">
+                  <td className="p-3 text-muted font-mono">{u.id}</td>
+                  <td className="p-3">
+                    <div>{u.name || "—"}</div>
+                    <div className="text-xs text-muted font-mono">{u.username || "—"}</div>
+                  </td>
+                  <td className="p-3 text-muted hidden md:table-cell">{u.email || "—"}</td>
+                  <td className="p-3">
+                    {isOfficer ? (
+                      <input
+                        className="field py-1 min-w-36"
+                        placeholder="e.g. Captain"
+                        value={drafts[u.id] ?? u.position ?? ""}
+                        onChange={e => setDrafts(d => ({ ...d, [u.id]: e.target.value }))}
+                        onBlur={() => savePosition(u)}
+                        onKeyDown={e => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                      />
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="p-3">
+                    <div className="flex flex-wrap gap-1">
+                      {ROLES.map(role => {
+                        const active = u.roles.includes(role);
+                        return (
+                          <button
+                            key={role}
+                            onClick={() => onRoleToggle(u.id, role, u.roles)}
+                            aria-pressed={active}
+                            className={`px-2 py-0.5 text-xs border transition-colors ${
+                              active ? "border-foreground text-foreground" : "border-line text-muted hover:text-foreground"
+                            }`}
+                          >
+                            {role}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {visible.length === 0 && (
+              <tr><td colSpan={5} className="p-8 text-center text-muted">No users match.</td></tr>
+            )}
           </tbody>
         </table>
       </div>

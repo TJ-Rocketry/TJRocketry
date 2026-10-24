@@ -10,35 +10,52 @@ export type User = {
   classYear: string | null;
   roles: string[];
   pfpUrl: string | null;
+  bio: string | null;
+  position: string | null;
 };
+
+type AuthState = { authenticated: boolean; user: User | null };
+
+let pending: Promise<AuthState> | null = null;
+
+function loadAuth(): Promise<AuthState> {
+  if (!pending) {
+    pending = fetch("/api/auth/me")
+      .then(async res => {
+        if (!res.ok) return { authenticated: false, user: null };
+        const data = await res.json();
+        return { authenticated: !!data.authenticated, user: data.user || null };
+      })
+      .catch(() => {
+        pending = null;
+        return { authenticated: false, user: null };
+      });
+  }
+  return pending;
+}
 
 export function useAuth() {
   const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
+  const [state, setState] = useState<AuthState>({ authenticated: false, user: null });
 
   useEffect(() => {
-    async function checkAuth() {
-      try {
-        const res = await fetch("/api/auth/me");
-        if (res.ok) {
-          const data = await res.json();
-          setAuthenticated(data.authenticated);
-          setUser(data.user || null);
-        } else {
-          setAuthenticated(false);
-          setUser(null);
-        }
-      } catch (error) {
-        setAuthenticated(false);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    checkAuth();
+    let alive = true;
+    loadAuth().then(s => {
+      if (!alive) return;
+      setState(s);
+      setLoading(false);
+    });
+    return () => { alive = false; };
   }, []);
 
-  return { loading, authenticated, user };
+  return { loading, authenticated: state.authenticated, user: state.user };
 }
+
+export const isAdminUser = (user: User | null) =>
+  !!user && user.roles.some(r => ["admin", "sponsor"].includes(r));
+
+export const isStaffUser = (user: User | null) =>
+  !!user && user.roles.some(r => ["admin", "sponsor", "officer"].includes(r));
+
+export const isMemberUser = (user: User | null) =>
+  !!user && user.roles.some(r => ["admin", "sponsor", "officer", "ARCmember", "BOTRmember"].includes(r));

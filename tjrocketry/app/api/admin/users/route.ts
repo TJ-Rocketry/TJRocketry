@@ -1,42 +1,18 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { checkAdminAccess } from "@/lib/auth";
 
-async function checkAdminAccess() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("ion_access_token")?.value;
-
-  if (!token) return false;
-
-  try {
-    const profileRes = await fetch("https://ion.tjhsst.edu/api/profile", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!profileRes.ok) return false;
-
-    const profileData = await profileRes.json();
-    const ionId = String(profileData.id);
-
-    const [user] = await db.select().from(users).where(eq(users.ionId, ionId)).limit(1);
-    if (!user || !user.roles.includes("admin")) return false;
-
-    return true;
-  } catch (e) {
-    console.error("checkAdminAccess error:", e);
-    return false;
-  }
-}
+const ROLES = ["admin", "sponsor", "officer", "ARCmember", "BOTRmember", "user"];
 
 export async function GET() {
-  const isAdmin = await checkAdminAccess();
-  if (!isAdmin) {
+  if (!(await checkAdminAccess())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const allUsers = await db.select().from(users).orderBy(users.id);
+    const allUsers = await db.select().from(users).orderBy(asc(users.id));
     return NextResponse.json({ users: allUsers });
   } catch (error) {
     console.error("Failed to fetch users:", error);
@@ -44,25 +20,37 @@ export async function GET() {
   }
 }
 
+// PUT — update a user's roles and/or officer position
 export async function PUT(request: Request) {
-  const isAdmin = await checkAdminAccess();
-  if (!isAdmin) {
+  if (!(await checkAdminAccess())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const { id, roles } = await request.json();
+    const { id, roles, position } = await request.json();
+    if (!id) return NextResponse.json({ error: "Missing user id" }, { status: 400 });
 
-    if (!id || !Array.isArray(roles)) {
-      return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+    const set: { roles?: string[]; position?: string | null } = {};
+    if (roles !== undefined) {
+      if (!Array.isArray(roles) || roles.some(r => !ROLES.includes(r))) {
+        return NextResponse.json({ error: "Invalid roles" }, { status: 400 });
+      }
+      set.roles = roles;
+    }
+    if (position !== undefined) {
+      set.position = typeof position === "string" && position.trim() ? position.trim() : null;
+    }
+    if (Object.keys(set).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
     }
 
     const [updatedUser] = await db
       .update(users)
-      .set({ roles })
+      .set(set)
       .where(eq(users.id, Number(id)))
       .returning();
 
+    if (!updatedUser) return NextResponse.json({ error: "User not found" }, { status: 404 });
     return NextResponse.json({ success: true, user: updatedUser });
   } catch (error) {
     console.error("Failed to update user:", error);

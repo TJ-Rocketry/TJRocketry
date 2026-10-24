@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Special_Gothic, DM_Serif_Display } from "next/font/google";
 import "./globals.css";
 import NavbarManager from "./components/NavbarManager";
 
@@ -7,6 +7,20 @@ import NavbarManager from "./components/NavbarManager";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+});
+
+const specialGothic = Special_Gothic({
+  variable: "--font-special-gothic",
+  subsets: ["latin"],
+  weight: "400",
+  fallback: ["sans-serif"],
+  adjustFontFallback: false,
+});
+
+const dmSerif = DM_Serif_Display({
+  variable: "--font-dm-serif",
+  subsets: ["latin"],
+  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -41,7 +55,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} antialiased`}
+      className={`${geistSans.variable} ${specialGothic.variable} ${dmSerif.variable} antialiased`}
     >
       <body className="min-h-screen flex flex-col font-sans">
         <NavbarManager />

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teamMembers, users } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 
 async function isTeamCaptain(userId: number, teamId: number): Promise<boolean> {
   const member = await db
@@ -63,7 +63,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -80,7 +80,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .values({
         teamId: Number(id),
         userId: Number(userId),
-        role: role || "member",
+        role: role === "captain" ? "captain" : "member",
+      })
+      .onConflictDoUpdate({
+        target: [teamMembers.teamId, teamMembers.userId],
+        set: { role: role === "captain" ? "captain" : "member" },
       })
       .returning();
 
@@ -93,7 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -124,7 +128,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -138,7 +142,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const [member] = await db
       .update(teamMembers)
-      .set({ role })
+      .set({ role: role === "captain" ? "captain" : "member" })
       .where(and(eq(teamMembers.teamId, Number(id)), eq(teamMembers.id, Number(memberId))))
       .returning();
 

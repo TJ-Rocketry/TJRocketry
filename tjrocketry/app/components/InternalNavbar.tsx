@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useAuth } from "@/hooks/useAuth";
+import { isAdminUser, useAuth } from "@/hooks/useAuth";
 import { ChevronDown, User as UserIcon, Menu, X } from "lucide-react";
 import NotificationPanel from "./NotificationPanel";
 
@@ -33,7 +33,7 @@ export default function InternalNavbar() {
 
   if (!user) return null;
 
-  const isAdmin = user.roles.includes("admin");
+  const isAdmin = isAdminUser(user);
 
   const handleSignOut = async () => {
     setDropdownOpen(false);
@@ -50,7 +50,7 @@ export default function InternalNavbar() {
   ];
 
   return (
-    <nav className="fixed w-full z-50 bg-neutral-900 border-b border-white/10 h-16">
+    <nav className="fixed w-full z-50 bg-background border-b border-line h-16">
       <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-12 h-full flex items-center justify-between">
         <Link href="/home" className="flex items-center group shrink-0">
           <div className="p-1.5 transition-transform group-hover:scale-110">
@@ -70,7 +70,7 @@ export default function InternalNavbar() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-sm text-gray-300 hover:text-white transition-colors"
+              className="text-sm text-foreground hover:text-white transition-colors"
             >
               {link.label}
             </Link>
@@ -88,14 +88,14 @@ export default function InternalNavbar() {
             >
               <UserIcon className="w-5 h-5 text-white" />
               <span className="text-white font-medium text-sm">{user.name || "Member"}</span>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-muted" />
             </button>
 
             {dropdownOpen && (
-              <div className="absolute right-0 top-12 mt-2 w-48 bg-neutral-800 shadow-xl border border-white/10 overflow-hidden py-1">
+              <div className="absolute right-0 top-12 mt-2 w-48 bg-background shadow-xl border border-line overflow-hidden py-1">
                 <Link 
                   href="/profile"
-                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-200 hover:bg-neutral-700 hover:text-white transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-white/5 hover:text-white transition-colors"
                   onClick={() => setDropdownOpen(false)}
                 >
                   Profile
@@ -103,7 +103,7 @@ export default function InternalNavbar() {
                 {isAdmin && (
                   <Link 
                     href="/admin"
-                    className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-neutral-700 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-white/5 transition-colors"
                     onClick={() => setDropdownOpen(false)}
                   >
                     Admin
@@ -111,7 +111,7 @@ export default function InternalNavbar() {
                 )}
                 <button 
                   onClick={handleSignOut}
-                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-400 hover:bg-neutral-700 hover:text-red-300 transition-colors"
+                  className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-400 hover:bg-white/5 hover:text-red-300 transition-colors"
                 >
                   Sign Out
                 </button>
@@ -121,7 +121,7 @@ export default function InternalNavbar() {
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-white hover:text-gray-300 transition-colors"
+            className="md:hidden p-2 text-white hover:text-foreground transition-colors"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -131,23 +131,23 @@ export default function InternalNavbar() {
       {mobileMenuOpen && (
         <div
           ref={mobileRef}
-          className="md:hidden bg-neutral-900 border-b border-white/10 shadow-xl animate-slideDown"
+          className="md:hidden bg-background border-b border-line shadow-xl animate-slideDown"
         >
           <div className="px-4 py-3 space-y-1">
             {navLinks.map(link => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="flex items-center gap-3 px-3 py-3 text-sm text-gray-200 hover:bg-neutral-800 transition-colors"
+                className="flex items-center gap-3 px-3 py-3 text-sm text-foreground hover:bg-white/5 transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {link.label}
               </Link>
             ))}
-            <hr className="border-white/10 my-2" />
+            <hr className="border-line my-2" />
             <Link
               href="/profile"
-              className="flex items-center gap-3 px-3 py-3 text-sm text-gray-200 hover:bg-neutral-800 transition-colors"
+              className="flex items-center gap-3 px-3 py-3 text-sm text-foreground hover:bg-white/5 transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
               Profile
@@ -155,7 +155,7 @@ export default function InternalNavbar() {
             {isAdmin && (
               <Link
                 href="/admin"
-                className="flex items-center gap-3 px-3 py-3 text-sm  hover:bg-neutral-800 transition-colors"
+                className="flex items-center gap-3 px-3 py-3 text-sm hover:bg-white/5 transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Admin
@@ -163,7 +163,7 @@ export default function InternalNavbar() {
             )}
             <button
               onClick={handleSignOut}
-              className="flex items-center gap-3 w-full px-3 py-3 text-sm text-red-400 hover:bg-neutral-800 transition-colors"
+              className="flex items-center gap-3 w-full px-3 py-3 text-sm text-red-400 hover:bg-white/5 transition-colors"
             >
               Sign Out
             </button>

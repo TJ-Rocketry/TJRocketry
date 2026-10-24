@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { filePermissions } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isStaff } from "@/lib/auth";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user || !isStaff(user.roles)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
+  if (!user || !isStaff(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
+  if (!user || !isStaff(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

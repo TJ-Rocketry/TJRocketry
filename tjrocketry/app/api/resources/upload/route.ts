@@ -1,17 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { resourceFiles } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { getCurrentUser, isStaff, isAdmin } from "@/lib/auth";
+import { ensureBucket, getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const BUCKET = "resources";
-
-async function ensureBucket() {
-  const { data: buckets } = await getSupabaseAdmin().storage.listBuckets();
-  if (!buckets?.find(b => b.name === BUCKET)) {
-    await getSupabaseAdmin().storage.createBucket(BUCKET, { public: true });
-  }
-}
 
 export async function GET() {
   return NextResponse.json({ ok: true, message: "upload route reachable" });
@@ -19,7 +12,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
+  if (!user || !isStaff(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -33,13 +26,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 });
     }
 
-    const isAdmin = user.roles.includes("admin");
+    const admin = isAdmin(user.roles);
     const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    if (!isAdmin && totalBytes > 25 * 1024 * 1024) {
+    if (!admin && totalBytes > 25 * 1024 * 1024) {
       return NextResponse.json({ error: "Total upload size exceeds 25 MB limit" }, { status: 413 });
     }
 
-    await ensureBucket();
+    await ensureBucket(BUCKET);
 
     const results = await Promise.all(files.map(async (file) => {
       const buffer = Buffer.from(await file.arrayBuffer());

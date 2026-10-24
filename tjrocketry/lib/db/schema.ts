@@ -22,6 +22,8 @@ export const users = pgTable(
   name: text("name"),
   roles: text("roles").array().default(["user"]).notNull(),
   pfpUrl: text("pfpUrl"),
+  bio: text("bio"),
+  position: text("position"),
 }, (table) => ({
   ionIdIdx: uniqueIndex("User_ionId_key").on(table.ionId),
   emailIdx: uniqueIndex("User_email_key").on(table.email),
@@ -64,13 +66,40 @@ export const inventoryItems = pgTable("InventoryItem", {
   type: text("type").notNull(),
   quantity: integer("quantity").default(0).notNull(),
   highValue: boolean("highValue").default(false).notNull(),
-  category: text("category").notNull(),
-  subCategory: text("subCategory").notNull(),
+  category: text("category"),
+  subCategory: text("subCategory"),
   imageUrl: text("imageUrl"),
+  notes: text("notes"),
+  archivedAt: timestamp("archivedAt", { precision: 3, mode: "date" }),
   createdAt: timestamp("createdAt", { precision: 3, mode: "date" })
     .defaultNow()
     .notNull(),
-  updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).notNull(),
+  updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).defaultNow().notNull(),
+});
+
+export const inventoryCategories = pgTable("InventoryCategory", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  createdAt: timestamp("createdAt", { precision: 3, mode: "date" }).defaultNow().notNull(),
+});
+
+// ── InventoryCheckout ── one row per check-out; returnedAt is null while out
+export const inventoryCheckouts = pgTable("InventoryCheckout", {
+  id: serial("id").primaryKey(),
+  itemId: integer("itemId")
+    .notNull()
+    .references(() => inventoryItems.id, { onDelete: "cascade" }),
+  userId: integer("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  quantity: integer("quantity").notNull(),
+  note: text("note"),
+  approvedById: integer("approvedById").references(() => users.id, { onDelete: "set null" }),
+  checkedOutAt: timestamp("checkedOutAt", { precision: 3, mode: "date" })
+    .defaultNow()
+    .notNull(),
+  returnedAt: timestamp("returnedAt", { precision: 3, mode: "date" }),
+  returnedById: integer("returnedById").references(() => users.id, { onDelete: "set null" }),
 });
 
 // ── InventoryLog ──
@@ -83,7 +112,9 @@ export const inventoryLogs = pgTable("InventoryLog", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   change: integer("change").notNull(),
-  type: text("type").notNull(),
+  type: text("type").notNull(), // checkout | return | use | restock | adjust | create | archive
+  note: text("note"),
+  checkoutId: integer("checkoutId").references(() => inventoryCheckouts.id, { onDelete: "set null" }),
   timestamp: timestamp("timestamp", { precision: 3, mode: "date" })
     .defaultNow()
     .notNull(),
@@ -103,10 +134,12 @@ export const checkoutRequests = pgTable("CheckoutRequest", {
   approvedBy: integer("approvedBy").references(() => users.id, {
     onDelete: "set null",
   }),
+  note: text("note"),
+  decidedAt: timestamp("decidedAt", { precision: 3, mode: "date" }),
   createdAt: timestamp("createdAt", { precision: 3, mode: "date" })
     .defaultNow()
     .notNull(),
-  updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).notNull(),
+  updatedAt: timestamp("updatedAt", { precision: 3, mode: "date" }).defaultNow().notNull(),
 });
 
 export const notifications = pgTable("Notification", {
@@ -142,7 +175,7 @@ export const resourceFiles = pgTable("ResourceFile", {
   description: text("description"),
   fileUrl: text("fileUrl"),
   fileSize: integer("fileSize"),
-  category: text("category").notNull(),
+  category: text("category"),
   subCategory: text("subCategory"),
   isFolder: boolean("isFolder").default(false).notNull(),
   parentId: integer("parentId"),
@@ -180,6 +213,7 @@ export const teamMembers = pgTable("TeamMember", {
 export const usersRelations = relations(users, ({ many }) => ({
   attendanceRecords: many(attendanceRecords),
   inventoryLogs: many(inventoryLogs),
+  inventoryCheckouts: many(inventoryCheckouts, { relationName: "borrower" }),
   checkoutRequests: many(checkoutRequests, { relationName: "requester" }),
   approvedRequests: many(checkoutRequests, { relationName: "approver" }),
   notifications: many(notifications),
@@ -210,7 +244,33 @@ export const inventoryItemsRelations = relations(
   inventoryItems,
   ({ many }) => ({
     logs: many(inventoryLogs),
+    checkouts: many(inventoryCheckouts),
     checkoutRequests: many(checkoutRequests),
+  }),
+);
+
+export const inventoryCheckoutsRelations = relations(
+  inventoryCheckouts,
+  ({ one }) => ({
+    item: one(inventoryItems, {
+      fields: [inventoryCheckouts.itemId],
+      references: [inventoryItems.id],
+    }),
+    user: one(users, {
+      fields: [inventoryCheckouts.userId],
+      references: [users.id],
+      relationName: "borrower",
+    }),
+    approvedBy: one(users, {
+      fields: [inventoryCheckouts.approvedById],
+      references: [users.id],
+      relationName: "checkoutApprover",
+    }),
+    returnedBy: one(users, {
+      fields: [inventoryCheckouts.returnedById],
+      references: [users.id],
+      relationName: "checkoutReturner",
+    }),
   }),
 );
 
@@ -299,3 +359,13 @@ export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
+export const announcements = pgTable("Announcement", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  startsAt: timestamp("startsAt", { withTimezone: true, mode: "date" }).notNull(),
+  endsAt: timestamp("endsAt", { withTimezone: true, mode: "date" }).notNull(),
+  createdById: integer("createdById").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("createdAt", { withTimezone: true, mode: "date" }).defaultNow().notNull(),
+});

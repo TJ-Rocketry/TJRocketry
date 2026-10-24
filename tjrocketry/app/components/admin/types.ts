@@ -6,6 +6,13 @@ export type UserType = {
   username: string | null;
   classYear: string | null;
   roles: string[];
+  position: string | null;
+};
+
+export type AttendanceRecordType = {
+  id: number;
+  timestamp: string;
+  user: { id: number; name: string | null; username: string | null; classYear: string | null };
 };
 
 export type AttendanceBlockType = {
@@ -13,8 +20,9 @@ export type AttendanceBlockType = {
   blockType: string;
   date: string;
   code: string;
+  isClosed: boolean;
   createdAt: string;
-  _count?: { records: number };
+  records: AttendanceRecordType[];
 };
 
 export type TeamType = {

@@ -14,3 +14,16 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
   return _admin;
 }
+
+const ensured = new Set<string>();
+
+export async function ensureBucket(name: string) {
+  if (ensured.has(name)) return;
+  const admin = getSupabaseAdmin();
+  const { data } = await admin.storage.getBucket(name);
+  if (!data) {
+    const { error } = await admin.storage.createBucket(name, { public: true });
+    if (error && !/already exists/i.test(error.message)) throw error;
+  }
+  ensured.add(name);
+}

@@ -76,7 +76,7 @@ export default function NotificationPanel() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => { if (!open) fetchNotifications(); setOpen(!open); }}
-        className="relative p-1.5 text-gray-400 hover:text-white transition-colors"
+        className="relative p-1.5 text-muted hover:text-white transition-colors"
         title="Notifications"
       >
         <Bell className="w-5 h-5" />
@@ -88,13 +88,13 @@ export default function NotificationPanel() {
       </button>
 
       {open && (
-            <div className="absolute right-0 top-10 mt-2 w-80 bg-neutral-800 shadow-xl border border-white/10 overflow-hidden z-50">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <div className="absolute right-0 top-10 mt-2 w-80 bg-background shadow-xl border border-line overflow-hidden z-50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-line">
             <span className="text-sm font-semibold text-white">Notifications</span>
             {notifications.length > 0 && (
               <button
                 onClick={handleClearAll}
-                className="text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-1"
+                className="text-xs text-muted hover:text-white transition-colors flex items-center gap-1"
               >
                 <Trash2 className="w-3 h-3" />
                 Clear all
@@ -104,12 +104,12 @@ export default function NotificationPanel() {
 
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">No notifications</p>
+              <p className="text-sm text-muted text-center py-8">No notifications</p>
             ) : (
               notifications.map((n) => (
                 <div
                   key={n.id}
-                  className={`px-4 py-3 border-b border-white/5 hover:bg-neutral-700/50 transition-colors ${n.read ? "" : "bg-neutral-700/30"}`}
+                  className={`px-4 py-3 border-b border-line hover:bg-white/5 transition-colors ${n.read ? "" : "bg-background"}`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
@@ -120,15 +120,15 @@ export default function NotificationPanel() {
                           className="block"
                         >
                           <p className="text-sm font-medium text-white truncate">{n.title}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{n.message}</p>
+                          <p className="text-xs text-muted mt-0.5 line-clamp-2">{n.message}</p>
                         </Link>
                       ) : (
                         <div onClick={() => handleMarkRead(n.id)} className="cursor-pointer">
                           <p className="text-sm font-medium text-white truncate">{n.title}</p>
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{n.message}</p>
+                          <p className="text-xs text-muted mt-0.5 line-clamp-2">{n.message}</p>
                         </div>
                       )}
-                      <p className="text-[10px] text-gray-600 mt-1">
+                      <p className="text-[10px] text-muted mt-1">
                         {new Date(n.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                       </p>
                     </div>
@@ -136,7 +136,7 @@ export default function NotificationPanel() {
                       {!n.read && (
                         <button
                           onClick={() => handleMarkRead(n.id)}
-                          className="p-1 text-gray-500 hover:text-green-400 transition-colors"
+                          className="p-1 text-muted hover:text-green-400 transition-colors"
                           title="Mark read"
                         >
                           <Check className="w-3 h-3" />
@@ -144,7 +144,7 @@ export default function NotificationPanel() {
                       )}
                       <button
                         onClick={() => handleDelete(n.id)}
-                        className="p-1 text-gray-500 hover:text-red-400 transition-colors"
+                        className="p-1 text-muted hover:text-red-400 transition-colors"
                         title="Delete"
                       >
                         <X className="w-3 h-3" />

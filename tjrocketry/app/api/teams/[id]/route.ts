@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { teams, teamMembers } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 
 async function canEditTeam(userId: number, teamId: number): Promise<boolean> {
   const member = await db
@@ -29,14 +29,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const body = await req.json();
     const teamId = Number(id);
 
-    const isAdmin = user.roles.includes("admin");
+    const admin = isAdmin(user.roles);
     const isCaptain = await canEditTeam(user.id, teamId);
 
-    if (!isAdmin && !isCaptain) {
+    if (!admin && !isCaptain) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    const updateData: Record<string, any> = {};
+    const updateData: { name?: string; arcId?: string | null } = {};
     if (body.name !== undefined) updateData.name = body.name;
     if (body.arcId !== undefined) updateData.arcId = body.arcId;
 
@@ -59,7 +59,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

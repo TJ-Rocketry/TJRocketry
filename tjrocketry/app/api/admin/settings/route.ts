@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appSettings } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 
 export async function GET() {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -23,7 +23,7 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.includes("admin")) {
+  if (!user || !isAdmin(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

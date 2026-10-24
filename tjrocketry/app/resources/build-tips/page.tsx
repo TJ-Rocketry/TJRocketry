@@ -1,9 +1,9 @@
 "use client";
 import { useAuth } from "@/hooks/useAuth";
+import PageShell from "@/app/components/PageShell";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, ChevronRight, Plus, Pencil, Trash2, X, Check } from "lucide-react";
+import { ChevronRight, Plus, Pencil, Trash2, X, Check } from "lucide-react";
 
 type ResourceFile = {
   id: number;
@@ -41,7 +41,7 @@ export default function BuildTipsPage() {
     } catch {}
   };
 
-  useEffect(() => { fetchVideos(); }, []);
+  useEffect(() => { queueMicrotask(() => { void fetchVideos(); }); }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +79,7 @@ export default function BuildTipsPage() {
     } catch {}
   };
 
-  if (loading || !user) return <div className="pt-32 text-center text-white">Loading...</div>;
+  if (loading || !user) return <PageShell title="Build Tips" back={{ href: "/resources", label: "Resources" }} loading />;
 
   const currentVideo = videos.find(v => String(v.id) === activeStep);
   const embedUrl = (url: string) => {
@@ -88,37 +88,30 @@ export default function BuildTipsPage() {
   };
 
   return (
-    <div className="pt-24 min-h-screen bg-neutral-900 text-white">
-      <div className="max-w-6xl mx-auto px-4 mt-8">
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/resources" className="text-gray-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-2xl font-bold">Build Tips</h1>
-          {isOfficer && (
-            <button onClick={() => setShowAdd(true)} className="ml-auto p-1.5 text-gray-400 hover:text-white transition-colors" title="Add Video">
-              <Plus className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-
+    <PageShell
+      title="Build Tips"
+      back={{ href: "/resources", label: "Resources" }}
+      actions={isOfficer && (
+        <button onClick={() => setShowAdd(true)} className="btn btn-primary"><Plus className="w-4 h-4" /> Add video</button>
+      )}
+    >
         {showAdd && (
-          <form onSubmit={handleAdd} className="bg-neutral-800 border border-neutral-700 p-4 mb-6 space-y-3">
+          <form onSubmit={handleAdd} className="border border-line p-4 mb-6 space-y-3">
             <div className="flex gap-2">
-              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Step name" className="flex-1 bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" required />
-              <input type="text" value={form.fileUrl} onChange={e => setForm(f => ({ ...f, fileUrl: e.target.value }))} placeholder="YouTube URL" className="flex-1 bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" required />
+              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Step name" className="field flex-1" required />
+              <input type="text" value={form.fileUrl} onChange={e => setForm(f => ({ ...f, fileUrl: e.target.value }))} placeholder="YouTube URL" className="field flex-1" required />
             </div>
-            <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description (optional)" className="w-full bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" />
+            <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Description (optional)" className="field" />
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-sm text-gray-400 hover:text-white">Cancel</button>
-              <button type="submit" className="px-3 py-1.5 text-sm border border-white text-white hover:bg-white hover:text-neutral-900">Add</button>
+              <button type="button" onClick={() => setShowAdd(false)} className="btn">Cancel</button>
+              <button type="submit" className="btn btn-primary">Add</button>
             </div>
           </form>
         )}
 
         <div className="flex flex-col md:flex-row gap-8">
           <div className="md:w-64 shrink-0">
-            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Progression</h3>
+            <h3 className="text-sm font-semibold text-muted mb-3">Progression</h3>
             <div className="space-y-1">
               {videos.map((v, i) => (
                 <div key={v.id} className="group flex items-center">
@@ -126,36 +119,36 @@ export default function BuildTipsPage() {
                     onClick={() => { setActiveStep(String(v.id)); if (editingId !== v.id) setEditingId(null); }}
                     className={`flex-1 flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
                       activeStep === String(v.id) && editingId !== v.id
-                        ? "bg-neutral-700 text-white"
-                        : "text-gray-400 hover:text-white hover:bg-neutral-800"
+                        ? "bg-white/5 text-foreground"
+                        : "text-muted hover:text-white hover:bg-white/5"
                     }`}
                   >
-                    <span className="text-xs text-gray-500 w-5">{i + 1}.</span>
+                    <span className="text-xs text-muted w-5">{i + 1}.</span>
                     <span className="truncate">{v.name}</span>
                     {activeStep === String(v.id) && editingId !== v.id && <ChevronRight className="w-3.5 h-3.5 ml-auto shrink-0" />}
                   </button>
                   {isOfficer && (
                     <div className="flex items-center gap-0.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => { setEditingId(v.id); setForm({ name: v.name, fileUrl: v.fileUrl, description: v.description || "" }); }} className="p-1 text-gray-400 hover:text-white" title="Edit"><Pencil className="w-3 h-3" /></button>
-                      <button onClick={() => handleDelete(v.id)} className="p-1 text-gray-400 hover:text-red-400" title="Delete"><Trash2 className="w-3 h-3" /></button>
+                      <button onClick={() => { setEditingId(v.id); setForm({ name: v.name, fileUrl: v.fileUrl, description: v.description || "" }); }} className="p-1 text-muted hover:text-white" title="Edit"><Pencil className="w-3 h-3" /></button>
+                      <button onClick={() => handleDelete(v.id)} className="p-1 text-muted hover:text-red-400" title="Delete"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   )}
                 </div>
               ))}
-              {videos.length === 0 && <p className="text-sm text-gray-500">No videos yet.</p>}
+              {videos.length === 0 && <p className="text-sm text-muted">No videos yet.</p>}
             </div>
           </div>
 
           <div className="flex-1">
             {editingId !== null && (
-              <div className="bg-neutral-800 border border-neutral-700 p-4 mb-4 space-y-3">
+              <div className="border border-line p-4 mb-4 space-y-3">
                 <div className="flex gap-2">
-                  <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="flex-1 bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" />
-                  <input type="text" value={form.fileUrl} onChange={e => setForm(f => ({ ...f, fileUrl: e.target.value }))} className="flex-1 bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" />
+                  <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="field flex-1" />
+                  <input type="text" value={form.fileUrl} onChange={e => setForm(f => ({ ...f, fileUrl: e.target.value }))} className="field flex-1" />
                 </div>
-                <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="w-full bg-transparent border border-neutral-600 px-2 py-1.5 text-white text-sm" />
+                <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} className="field" />
                 <div className="flex gap-2 justify-end">
-                  <button onClick={() => setEditingId(null)} className="p-1.5 text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+                  <button onClick={() => setEditingId(null)} className="p-1.5 text-muted hover:text-white"><X className="w-4 h-4" /></button>
                   <button onClick={() => handleEdit(editingId)} className="p-1.5 text-green-400 hover:text-green-300"><Check className="w-4 h-4" /></button>
                 </div>
               </div>
@@ -163,16 +156,15 @@ export default function BuildTipsPage() {
             {currentVideo && editingId !== Number(currentVideo.id) && (
               <div>
                 <h2 className="text-xl font-semibold mb-4">{currentVideo.name}</h2>
-                {currentVideo.description && <p className="text-sm text-gray-400 mb-4">{currentVideo.description}</p>}
-                <div className="aspect-video bg-neutral-800 overflow-hidden border border-neutral-700">
+                {currentVideo.description && <p className="text-sm text-muted mb-4">{currentVideo.description}</p>}
+                <div className="aspect-video overflow-hidden border border-line">
                   <iframe src={embedUrl(currentVideo.fileUrl)} className="w-full h-full" allowFullScreen title={currentVideo.name} />
                 </div>
               </div>
             )}
-            {!currentVideo && editingId === null && <p className="text-gray-400">Select a step to view.</p>}
+            {!currentVideo && editingId === null && <p className="text-muted">Select a step to view.</p>}
           </div>
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }

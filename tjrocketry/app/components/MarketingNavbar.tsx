@@ -38,7 +38,7 @@ export default function MarketingNavbar() {
   return (
     <nav className={`fixed w-full z-50 transition-all duration-300 ease-in-out ${
       scrolled 
-        ? "bg-neutral-900 backdrop-blur-md border-b border-white/10" 
+        ? "bg-background backdrop-blur-md border-b border-line" 
         : "bg-transparent"
     }`}>
       <div className="max-w-[1440px] mx-auto px-4 sm:px-8 lg:px-12">
@@ -61,14 +61,14 @@ export default function MarketingNavbar() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm font-semibold text-gray-300 hover:text-white transition-colors"
+                className="text-sm font-semibold text-foreground hover:text-white transition-colors"
               >
                 {link.label}
               </Link>
             ))}
             <Link
               href="/apply"
-              className="text-sm font-semibold text-gray-300 hover:text-white transition-colors"
+              className="text-sm font-semibold text-foreground hover:text-white transition-colors"
             >
               Apply
             </Link>
@@ -76,7 +76,7 @@ export default function MarketingNavbar() {
             {!loading && !authenticated && (
               <Link
                 href="/api/auth/login"
-                className="group relative inline-flex items-center justify-center px-6 py-2 text-sm font-bold text-white transition-all duration-200 rounded-xl hover:bg-neutral-900"
+                className="group relative inline-flex items-center justify-center px-6 py-2 text-sm font-bold text-white transition-all duration-200 hover:bg-background"
               >
                 <span className="relative flex items-center gap-2">
                   Sign In
@@ -92,7 +92,7 @@ export default function MarketingNavbar() {
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-white hover:text-gray-300 transition-colors"
+            className="md:hidden p-2 text-white hover:text-foreground transition-colors"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -102,23 +102,23 @@ export default function MarketingNavbar() {
       {mobileMenuOpen && (
         <div
           ref={mobileRef}
-          className="md:hidden bg-neutral-900 border-b border-white/10 shadow-xl animate-slideDown"
+          className="md:hidden bg-background border-b border-line shadow-xl animate-slideDown"
         >
           <div className="px-4 py-3 space-y-1">
             {marketingLinks.map(link => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="flex items-center gap-3 px-3 py-3 text-sm text-gray-200 hover:bg-neutral-800 rounded-lg transition-colors"
+                className="flex items-center gap-3 px-3 py-3 text-sm text-foreground hover:bg-white/5 transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {link.label}
               </Link>
             ))}
-            <hr className="border-white/10 my-2" />
+            <hr className="border-line my-2" />
             <Link
               href="/apply"
-              className="flex items-center gap-3 px-3 py-3 text-sm text-gray-200 hover:bg-neutral-800 rounded-lg transition-colors"
+              className="flex items-center gap-3 px-3 py-3 text-sm text-foreground hover:bg-white/5 transition-colors"
               onClick={() => setMobileMenuOpen(false)}
             >
               Apply
@@ -126,7 +126,7 @@ export default function MarketingNavbar() {
             {!loading && !authenticated && (
               <Link
                 href="/api/auth/login"
-                className="flex items-center gap-3 px-3 py-3 text-sm text-white font-semibold hover:bg-neutral-800 rounded-lg transition-colors"
+                className="flex items-center gap-3 px-3 py-3 text-sm text-white font-semibold hover:bg-white/5 transition-colors"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Sign In

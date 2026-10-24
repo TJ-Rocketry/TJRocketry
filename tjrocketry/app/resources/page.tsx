@@ -3,7 +3,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BookOpen, FileArchive, ExternalLink, Calendar as CalendarIcon, MapPin, Clock, Users } from "lucide-react";
+import { BookOpen, FileArchive, ExternalLink, MapPin, Clock, Users } from "lucide-react";
+import PageShell from "@/app/components/PageShell";
+import { formatDay } from "@/lib/dates";
 
 type LaunchEvent = {
   id: number;
@@ -68,61 +70,48 @@ export default function ResourcesPage() {
       .catch(() => {});
   }, []);
 
-  if (loading || !user) return <div className="pt-32 text-center text-white">Loading...</div>;
-  const nextLaunch = launches
-    .filter(l => new Date(l.date) >= new Date(new Date().toISOString().split("T")[0]))
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0] || null;
+  if (loading || !user) return <PageShell title="Resources" loading />;
+  const nextLaunch = launches[0] ?? null;
 
   return (
-    <div className="pt-24 min-h-screen bg-neutral-900 text-white">
-      <div className="max-w-5xl mx-auto px-4 mt-8">
-        <h1 className="text-2xl font-bold mb-6">Resources</h1>
+    <PageShell title="Resources">
+      <section className="mb-10">
+        <h2 className="section-title mb-3">Launch schedule</h2>
+        {nextLaunch ? (
+          <p>
+            <span className="font-medium">Next launch:</span> {nextLaunch.title}
+            <span className="text-muted">
+              {" · "}{formatDay(nextLaunch.date)}
+              {nextLaunch.startTime && <> · <Clock className="w-3 h-3 inline -mt-0.5" /> {nextLaunch.startTime}{nextLaunch.endTime && ` – ${nextLaunch.endTime}`}</>}
+              {nextLaunch.location && <> · <MapPin className="w-3 h-3 inline -mt-0.5" /> {nextLaunch.location}</>}
+            </span>
+          </p>
+        ) : (
+          <p className="text-muted">TBD — check back for updates.</p>
+        )}
+      </section>
 
-        <div className="bg-neutral-900 border border-neutral-700 p-6 mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-lg font-semibold">Launch Schedule</h2>
-          </div>
-
-          <div className="text-sm text-gray-400 mb-4">
-            {nextLaunch ? (
-              <div>
-                <span className="text-white font-medium">Next Launch: </span>
-                {nextLaunch.title} &middot; {new Date(nextLaunch.date).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                {nextLaunch.startTime && <span className="ml-2"><Clock className="w-3 h-3 inline mr-1" />{nextLaunch.startTime}{nextLaunch.endTime && ` – ${nextLaunch.endTime}`}</span>}
-                {nextLaunch.location && <span className="ml-2"><MapPin className="w-3 h-3 inline mr-1" />{nextLaunch.location}</span>}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {sections.map(sec => (
+          <Link
+            key={sec.key}
+            href={sec.key === "teams" ? "/teams" : `/resources/${sec.key}`}
+            className="group border border-line overflow-hidden hover:border-foreground transition-colors"
+          >
+            <div className="h-36 overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={sec.image} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            </div>
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <sec.icon className="w-4 h-4" />
+                <h2 className="font-semibold">{sec.label}</h2>
               </div>
-            ) : (
-              <span>TBD - Check back for updates</span>
-            )}
-          </div>
-
-        </div>
-
-        <div className="grid md:grid-cols-3 gap-6">
-          {sections.map(sec => (
-            <Link
-              key={sec.key}
-              href={`/resources/${sec.key === "teams" ? "../teams" : sec.key}`}
-              className="group bg-neutral-800 border border-neutral-700 overflow-hidden hover:border-white/30 transition-all"
-            >
-              <div className="h-40 overflow-hidden">
-                <img
-                  src={sec.image}
-                  alt={sec.label}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="p-5">
-                <div className="flex items-center gap-2 mb-2">
-                  <sec.icon className="w-5 h-5 text-gray-300" />
-                  <h2 className="text-lg font-semibold">{sec.label}</h2>
-                </div>
-                <p className="text-sm text-gray-400">{sec.desc}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
+              <p className="text-sm text-muted">{sec.desc}</p>
+            </div>
+          </Link>
+        ))}
       </div>
-    </div>
+    </PageShell>
   );
 }

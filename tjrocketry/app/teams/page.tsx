@@ -1,17 +1,12 @@
 "use client";
-import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Shield } from "lucide-react";
-import InlineEdit from "@/app/components/InlineEdit";
+import { Crown, Plus, Trash2, X } from "lucide-react";
+import { isAdminUser, useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api-client";
+import PageShell from "@/app/components/PageShell";
 
-type Team = {
-  id: number;
-  name: string;
-  arcId?: string | null;
-};
-
-type TeamMember = {
+type Member = {
   id: number;
   userId: number;
   role: string;
@@ -19,175 +14,275 @@ type TeamMember = {
   username: string | null;
 };
 
+type Team = {
+  id: number;
+  name: string;
+  arcId?: string | null;
+  members: Member[];
+};
+
+type Person = { id: number; name: string | null; username: string | null };
+
+const display = (p: { name: string | null; username: string | null }) => p.name || p.username || "Member";
+
+function AddPerson({
+  people,
+  exclude,
+  label,
+  onPick,
+}: {
+  people: Person[];
+  exclude: Set<number>;
+  label: string;
+  onPick: (person: Person) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const results = q
+    ? people.filter(p => !exclude.has(p.id) && [p.name, p.username].some(v => v?.toLowerCase().includes(q))).slice(0, 6)
+    : [];
+
+  const pick = (p: Person) => {
+    onPick(p);
+    setQuery("");
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && results[0]) { e.preventDefault(); pick(results[0]); }
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder={label}
+        aria-label={label}
+        className="w-full bg-transparent text-sm py-1 outline-none border-b border-line focus:border-foreground placeholder:text-muted"
+      />
+      {open && q && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-20 bg-background border border-line">
+          {results.map(p => (
+            <button key={p.id} onMouseDown={e => e.preventDefault()} onClick={() => pick(p)}
+              className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5">
+              {display(p)}
+              {p.name && p.username && <span className="text-muted"> · {p.username}</span>}
+            </button>
+          ))}
+          {results.length === 0 && <p className="px-3 py-2 text-sm text-muted">No one matches.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditableText({
+  value,
+  placeholder,
+  onSave,
+  className,
+}: {
+  value: string;
+  placeholder: string;
+  onSave: (v: string) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(value);
+  return (
+    <input
+      value={draft}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={() => draft.trim() !== value && onSave(draft.trim())}
+      onKeyDown={e => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") { setDraft(value); (e.target as HTMLInputElement).blur(); }
+      }}
+      className={`bg-transparent outline-none border-b border-transparent hover:border-line focus:border-foreground w-full ${className ?? ""}`}
+    />
+  );
+}
+
 export default function TeamsPage() {
   const { user, authenticated, loading } = useAuth();
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [members, setMembers] = useState<Record<number, TeamMember[]>>({});
-  const [editing, setEditing] = useState<{ teamId: number; field: "name" | "arc"; value: string } | null>(null);
+  const [teams, setTeams] = useState<Team[] | null>(null);
+  const [people, setPeople] = useState<Person[]>([]);
   const [teamSelectionDate, setTeamSelectionDate] = useState<string | null>(null);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [error, setError] = useState("");
 
-  const isArc = user?.roles.some(r => ["admin", "sponsor", "officer", "ARCmember"].includes(r));
+  const admin = isAdminUser(user);
+  const isArc = !!user?.roles.some(r => ["admin", "sponsor", "officer", "ARCmember"].includes(r));
 
-  const fetchPublic = async () => {
-    const res = await fetch("/api/public/teams");
-    if (res.ok) {
-      const d = await res.json();
-      setTeams(d.teams);
-      const m: Record<number, TeamMember[]> = {};
-      d.teams.forEach((t: any) => { m[t.id] = t.members; });
-      setMembers(m);
+  const load = useCallback(async () => {
+    try {
+      const url = authenticated && isArc ? "/api/teams" : "/api/public/teams";
+      setTeams((await api<{ teams: Team[] }>(url)).teams);
+    } catch (err) {
+      setError((err as Error).message);
+      setTeams([]);
     }
-  };
-
-  const fetchInternal = async () => {
-    const res = await fetch("/api/teams");
-    if (res.ok) {
-      const d = await res.json();
-      setTeams(d.teams);
-      d.teams.forEach((t: Team) => fetchMembers(t.id));
-    }
-  };
-
-  const fetchMembers = async (teamId: number) => {
-    const res = await fetch(`/api/teams/${teamId}/members`);
-    if (res.ok) {
-      const d = await res.json();
-      setMembers(prev => ({ ...prev, [teamId]: d.members }));
-    }
-  };
-
-  const fetchSettings = async () => {
-    const res = await fetch("/api/public/settings");
-    if (res.ok) {
-      const d = await res.json();
-      setTeamSelectionDate(d.settings?.teamSelectionDate || null);
-    }
-    setSettingsLoaded(true);
-  };
+  }, [authenticated, isArc]);
 
   useEffect(() => {
     if (loading) return;
-    fetchSettings();
-    if (authenticated && user && isArc) {
-      fetchInternal();
-    } else {
-      fetchPublic();
+    queueMicrotask(() => { void load(); });
+    api<{ settings: Record<string, string | null> }>("/api/public/settings")
+      .then(d => setTeamSelectionDate(d.settings?.teamSelectionDate || null))
+      .catch(() => {});
+    if (admin) {
+      api<{ users: Person[] }>("/api/admin/users").then(d => setPeople(d.users)).catch(() => {});
     }
-  }, [loading, authenticated, user]);
+  }, [loading, admin, load]);
 
-  const handleSaveTeam = async (teamId: number, name: string, arcId: string) => {
-    if (!name.trim()) return;
-    await fetch(`/api/teams/${teamId}`, {
+  const teamOf = useMemo(() => {
+    const map = new Map<number, string>();
+    teams?.forEach(t => t.members.forEach(m => map.set(m.userId, t.name)));
+    return map;
+  }, [teams]);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setError("");
+    try {
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    load();
+  };
+
+  const saveTeam = (team: Team, patch: { name?: string; arcId?: string }) =>
+    run(() => api(`/api/teams/${team.id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), arcId: arcId.trim() || null }),
-    });
-    setEditing(null);
-    fetchInternal();
+      json: { name: patch.name ?? team.name, arcId: (patch.arcId ?? team.arcId ?? "") || null },
+    }));
+
+  const addMember = (team: Team, person: Person, role: "captain" | "member") => {
+    const elsewhere = teamOf.get(person.id);
+    if (elsewhere && elsewhere !== team.name && !confirm(`${display(person)} is already on ${elsewhere}. Add them here too?`)) return;
+    run(() => api(`/api/teams/${team.id}/members`, { method: "POST", json: { userId: person.id, role } }));
   };
 
-  const isOnTeam = (teamId: number) => {
-    if (!user) return false;
-    return (members[teamId] || []).some(m => m.userId === user.id);
-  };
+  const beforeSelection = !!teamSelectionDate && new Date() < new Date(teamSelectionDate);
 
-  const isTeamCaptain = (teamId: number) => {
-    if (!user) return false;
-    return (members[teamId] || []).some(m => m.userId === user.id && m.role === "captain");
+  const memberList = (team: Team, role: "captain" | "member", canEdit: boolean) => {
+    const list = team.members.filter(m => (role === "captain" ? m.role === "captain" : m.role !== "captain"));
+    return (
+      <div>
+        <p className="text-xs text-muted mb-1.5">{role === "captain" ? "Captains" : "Members"}</p>
+        {list.length === 0 && !admin && <p className="text-sm text-muted">None yet.</p>}
+        <ul className="space-y-1">
+          {list.map(m => (
+            <li key={m.id} className="group flex items-center justify-between gap-2 text-sm">
+              <span className={user?.id === m.userId ? "text-accent" : ""}>{display(m)}</span>
+              {canEdit && (
+                <span className="flex items-center gap-1 opacity-60 group-hover:opacity-100">
+                  <button
+                    onClick={() => run(() => api(`/api/teams/${team.id}/members`, { method: "PUT", json: { memberId: m.id, role: role === "captain" ? "member" : "captain" } }))}
+                    title={role === "captain" ? "Make member" : "Make captain"}
+                    aria-label={role === "captain" ? `Make ${display(m)} a member` : `Make ${display(m)} a captain`}
+                    className="p-1 text-muted hover:text-accent"
+                  >
+                    <Crown className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => run(() => api(`/api/teams/${team.id}/members?memberId=${m.id}`, { method: "DELETE" }))}
+                    aria-label={`Remove ${display(m)}`}
+                    className="p-1 text-muted hover:text-red-400"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {canEdit && (
+          <div className="mt-2">
+            <AddPerson
+              people={people}
+              exclude={new Set(team.members.map(m => m.userId))}
+              label={role === "captain" ? "+ Add captain" : "+ Add member"}
+              onPick={p => addMember(team, p, role)}
+            />
+          </div>
+        )}
+      </div>
+    );
   };
-
-  const beforeSelection = settingsLoaded && teamSelectionDate && new Date() < new Date(teamSelectionDate);
 
   return (
-    <div className="pt-24 min-h-screen bg-neutral-900 text-white">
-      <div className="max-w-4xl mx-auto px-4 mt-8 pb-24">
-        <h1 className="text-2xl font-bold mb-8">{isArc ? "Teams" : "Our Teams"}</h1>
+    <PageShell
+      title={isArc ? "Teams" : "Our Teams"}
+      description={admin ? "Click a team name or ARC ID to edit it. Type in a list to add people." : undefined}
+      actions={admin && (
+        <button className="btn btn-primary" onClick={() => run(() => api("/api/teams", { method: "POST", json: { name: "New Team" } }))}>
+          <Plus className="w-4 h-4" /> New team
+        </button>
+      )}
+    >
+        {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
 
-        {!settingsLoaded ? (
-          <p className="text-gray-500 text-sm">Loading...</p>
+        {teams === null ? (
+          <p className="text-muted text-sm">Loading…</p>
         ) : beforeSelection && !isArc ? (
-          <div className="border border-neutral-700 p-6">
-            <p className="text-neutral-300">
-              The teams for the American Rocketry Challenge at TJ have not been selected yet. To apply, visit the{" "}
-              <Link href="/apply" className="text-white underline hover:text-blue-400">application page</Link>.
-            </p>
-          </div>
+          <p>
+            Teams for the American Rocketry Challenge haven&apos;t been selected yet. To apply, visit the{" "}
+            <Link href="/apply" className="underline hover:text-accent">application page</Link>.
+          </p>
         ) : teams.length === 0 ? (
-          <p className="text-gray-500 text-sm">No teams configured yet.</p>
+          <p className="text-muted text-sm">No teams yet.</p>
         ) : (
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-2 gap-x-10 gap-y-12">
             {teams.map(team => {
-              const teamMems = members[team.id] || [];
-              const captains = teamMems.filter(m => m.role === "captain");
-              const regulars = teamMems.filter(m => m.role === "member");
-              const mine = isOnTeam(team.id);
-              const canEdit = isArc || isTeamCaptain(team.id);
-
+              const captain = !!user && team.members.some(m => m.userId === user.id && m.role === "captain");
+              const canRename = admin || captain;
               return (
-                <div key={team.id}
-                  className={`border p-5 transition-colors ${mine ? "border-neutral-500 bg-neutral-800/60" : "border-neutral-700"}`}>
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        {canEdit ? (
-                          <InlineEdit
-                            value={team.name}
-                            editing={editing?.teamId === team.id && editing.field === "name"}
-                            editValue={editing?.value ?? ""}
-                            onStart={() => setEditing({ teamId: team.id, field: "name", value: team.name })}
-                            onChange={v => setEditing(p => p ? { ...p, value: v } : null)}
-                            onSave={v => handleSaveTeam(team.id, v, team.arcId || "")}
-                            onCancel={() => setEditing(null)}
-                          />
-                        ) : (
-                          <h2 className="text-lg font-semibold">{team.name}</h2>
-                        )}
-                      </div>
-                      {isArc && team.arcId && (
-                        <p className="text-sm text-neutral-400 mt-0.5">ARC ID: {team.arcId}</p>
+                <section key={team.id}>
+                  <div className="flex items-start justify-between gap-3 border-b border-line pb-2 mb-4">
+                    <div className="flex-1 min-w-0">
+                      {canRename ? (
+                        <EditableText key={`n${team.name}`} value={team.name} placeholder="Team name" className="text-lg font-semibold"
+                          onSave={name => name && saveTeam(team, { name })} />
+                      ) : (
+                        <h2 className="text-lg font-semibold">{team.name}</h2>
                       )}
+                      {isArc && (canRename ? (
+                        <EditableText key={`a${team.arcId}`} value={team.arcId ?? ""} placeholder="ARC ID" className="text-sm text-muted"
+                          onSave={arcId => saveTeam(team, { arcId })} />
+                      ) : team.arcId ? (
+                        <p className="text-sm text-muted">ARC ID {team.arcId}</p>
+                      ) : null)}
                     </div>
-                    {mine && !canEdit && (
-                      <span className="text-xs text-neutral-400 flex items-center gap-1 shrink-0"><Shield className="w-3 h-3" />Member</span>
+                    {admin && (
+                      <button
+                        onClick={() => confirm(`Delete ${team.name} and its roster?`) && run(() => api(`/api/teams/${team.id}`, { method: "DELETE" }))}
+                        aria-label={`Delete ${team.name}`}
+                        className="p-1 text-muted hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
-
-                  {captains.length > 0 && (
-                    <div className="mb-2">
-                      <p className="text-sm text-neutral-400 mb-1">Captains</p>
-                      <div className="flex flex-wrap gap-1">
-                        {captains.map(m => (
-                          <span key={m.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-sm text-neutral-300">
-                            {m.name || m.username || `Member`}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {regulars.length > 0 && (
-                    <div>
-                      <p className="text-sm text-neutral-400 mb-1">Members</p>
-                      <div className="flex flex-wrap gap-1">
-                        {regulars.map(m => (
-                          <span key={m.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-sm text-neutral-300">
-                            {m.name || m.username || `Member`}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {teamMems.length === 0 && (
-                    <p className="text-sm text-neutral-600">No members assigned yet.</p>
-                  )}
-                </div>
+                  <div className="grid grid-cols-2 gap-6">
+                    {memberList(team, "captain", admin)}
+                    {memberList(team, "member", admin)}
+                  </div>
+                </section>
               );
             })}
           </div>
         )}
-      </div>
-    </div>
+    </PageShell>
   );
 }

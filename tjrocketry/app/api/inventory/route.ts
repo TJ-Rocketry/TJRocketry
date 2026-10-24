@@ -1,63 +1,80 @@
 import { NextRequest, NextResponse } from "next/server";
-import { eq, asc } from "drizzle-orm";
+import { asc, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { inventoryItems, inventoryLogs } from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { checkoutRequests, inventoryCheckouts, inventoryItems, inventoryLogs } from "@/lib/db/schema";
+import { getCurrentUser, isMember, isStaff } from "@/lib/auth";
+import { categoryNames, parseItem } from "@/lib/inventory";
 
-export async function GET(req: NextRequest) {
+// GET — every active item with live availability and who currently has it
+export async function GET() {
+  const user = await getCurrentUser();
+  if (!user || !isMember(user.roles)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
   try {
-    const { searchParams } = new URL(req.url);
-    const category = searchParams.get("category");
-    const where = category ? { category } : {};
-    const items = await db
-      .select()
-      .from(inventoryItems)
-      .where(category ? eq(inventoryItems.category, category) : undefined)
-      .orderBy(asc(inventoryItems.subCategory), asc(inventoryItems.name));
-    return NextResponse.json({ items });
-  } catch {
+    const [items, open, pending, categories] = await Promise.all([
+      db
+        .select()
+        .from(inventoryItems)
+        .where(isNull(inventoryItems.archivedAt))
+        .orderBy(asc(inventoryItems.name)),
+      db.query.inventoryCheckouts.findMany({
+        where: isNull(inventoryCheckouts.returnedAt),
+        orderBy: desc(inventoryCheckouts.checkedOutAt),
+        with: { user: { columns: { id: true, name: true, username: true } } },
+      }),
+      db
+        .select({ itemId: checkoutRequests.itemId, userId: checkoutRequests.userId, quantity: checkoutRequests.quantity })
+        .from(checkoutRequests)
+        .where(eq(checkoutRequests.status, "pending")),
+      categoryNames(),
+    ]);
+
+    const result = items.map(item => {
+      const holders = open.filter(c => c.itemId === item.id);
+      const out = holders.reduce((n, c) => n + c.quantity, 0);
+      return {
+        ...item,
+        checkedOut: out,
+        available: item.type === "consumable" ? item.quantity : Math.max(0, item.quantity - out),
+        holders,
+        pendingRequests: pending.filter(p => p.itemId === item.id).length,
+        myPendingRequest: pending.some(p => p.itemId === item.id && p.userId === user.id),
+      };
+    });
+
+    return NextResponse.json({ items: result, categories });
+  } catch (error) {
+    console.error("Failed to fetch inventory:", error);
     return NextResponse.json({ error: "Failed to fetch inventory" }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
+  if (!user || !isStaff(user.roles)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const { name, location, type, quantity, highValue, category, subCategory, imageUrl } = await req.json();
-    if (!name || !location || !type || !category || !subCategory) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    const parsed = parseItem(await req.json(), await categoryNames());
+    if (!parsed.values) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
-    const [item] = await db
-      .insert(inventoryItems)
-      .values({
-        name,
-        location,
-        type,
-        quantity: quantity || 0,
-        highValue: highValue || false,
-        category,
-        subCategory,
-        imageUrl,
-        updatedAt: new Date(),
-      })
-      .returning();
-
-    if (quantity > 0) {
-      await db.insert(inventoryLogs).values({
-        itemId: item.id,
+    const item = await db.transaction(async tx => {
+      const [created] = await tx.insert(inventoryItems).values(parsed.values).returning();
+      await tx.insert(inventoryLogs).values({
+        itemId: created.id,
         userId: user.id,
-        change: quantity,
-        type: "set",
+        change: created.quantity,
+        type: "create",
       });
-    }
+      return created;
+    });
 
     return NextResponse.json({ item });
-  } catch {
+  } catch (error) {
+    console.error("Failed to create item:", error);
     return NextResponse.json({ error: "Failed to create item" }, { status: 500 });
   }
 }

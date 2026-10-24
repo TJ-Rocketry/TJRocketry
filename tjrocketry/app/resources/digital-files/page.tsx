@@ -1,792 +1,748 @@
 "use client";
-import { useAuth } from "@/hooks/useAuth";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import Link from "next/link";
 import {
-  ArrowLeft, Search, FolderPlus, Folder, FileText,
-  MoreVertical, Download, Pencil, Trash2, Shield, X, Check,
-  ChevronRight, Grid3X3, List, FileUp
+  ChevronRight, Download, Eye, FolderInput, FolderPlus, FolderUp, Grid3X3, List, Loader2, Pencil,
+  Plus, Search, Shield, Trash2, Upload, X, ArrowUp, ArrowDown, Check, AlertCircle,
 } from "lucide-react";
+import { isStaffUser, useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api-client";
+import PageShell from "@/app/components/PageShell";
+import FileIcon from "@/app/components/drive/FileIcon";
+import { MoveDialog, PermissionsDialog, PreviewDialog } from "@/app/components/drive/Dialogs";
+import { DriveFile, FolderRef, downloadUrl, formatModified, formatSize, kindOf } from "@/app/components/drive/types";
 
-type ResourceFile = {
-  id: number;
-  name: string;
-  description: string | null;
-  fileUrl: string | null;
-  fileSize: number | null;
-  category: string;
-  subCategory: string | null;
-  isFolder: boolean;
-  parentId: number | null;
-  uploadedById: number | null;
-  createdAt: string;
-};
+type SortKey = "name" | "createdAt" | "fileSize";
+type UploadItem = { key: string; name: string; progress: number; status: "queued" | "uploading" | "done" | "error"; error?: string };
+type Pending = { file: File; relPath: string[] };
+type Menu = { x: number; y: number; target: DriveFile | null };
 
-type FilePermission = {
-  id: number;
-  fileId: number;
-  accessType: string;
-  teamId: number | null;
-};
+const ROOT: FolderRef = { id: null, name: "Digital Files" };
+const PREVIEWABLE = new Set(["image", "pdf", "video"]);
+const MAX_PARALLEL = 3;
 
-type Team = {
-  id: number;
-  name: string;
-};
-
-type Breadcrumb = { id: number | null; name: string };
-
-function formatSize(bytes: number | null): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+function readFolderParam() {
+  const v = new URLSearchParams(window.location.search).get("folder");
+  return v ? Number(v) || null : null;
 }
 
-function getFileIcon(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase();
-  if (["pdf"].includes(ext || "")) return "pdf";
-  if (["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(ext || "")) return "image";
-  if (["doc", "docx"].includes(ext || "")) return "doc";
-  if (["xls", "xlsx", "csv"].includes(ext || "")) return "sheet";
-  if (["zip", "rar", "7z", "tar", "gz"].includes(ext || "")) return "archive";
-  if (["py", "js", "ts", "java", "cpp", "c", "h", "html", "css"].includes(ext || "")) return "code";
-  return "file";
+async function entriesToFiles(entry: FileSystemEntry, path: string[] = []): Promise<Pending[]> {
+  if (entry.isFile) {
+    const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+    return [{ file, relPath: path }];
+  }
+  const reader = (entry as FileSystemDirectoryEntry).createReader();
+  const children: FileSystemEntry[] = [];
+  for (;;) {
+    const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+    if (!batch.length) break;
+    children.push(...batch);
+  }
+  const nested = await Promise.all(children.map(c => entriesToFiles(c, [...path, entry.name])));
+  return nested.flat();
+}
+
+function uploadOne(file: File, parentId: number | null, onProgress: (p: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const fd = new FormData();
+    fd.append("files", file);
+    fd.set("category", "digital_files");
+    if (parentId !== null) fd.set("parentId", String(parentId));
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/resources/upload");
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      try {
+        reject(new Error(JSON.parse(xhr.responseText).error || "Upload failed"));
+      } catch {
+        reject(new Error(xhr.status === 413 ? "File too large" : "Upload failed"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(fd);
+  });
 }
 
 export default function DigitalFilesPage() {
   const { user, authenticated, loading } = useAuth();
   const router = useRouter();
-  const [items, setItems] = useState<ResourceFile[]>([]);
-  const [currentFolderId, setCurrentFolderId] = useState<number | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([{ id: null, name: "Digital Files" }]);
-  const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [showCreateFolder, setShowCreateFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [menuOpen, setMenuOpen] = useState<number | null>(null);
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [permModal, setPermModal] = useState<ResourceFile | null>(null);
-  const [permAccessTypes, setPermAccessTypes] = useState<string[]>(["everyone"]);
-  const [permTeamIds, setPermTeamIds] = useState<number[]>([]);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [existingPerms, setExistingPerms] = useState<FilePermission[]>([]);
-  const [dragOverId, setDragOverId] = useState<number | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; folderId: number | null } | null>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<number | null>(null);
-  const createFolderParentRef = useRef<number | null>(null);
-  const ctxRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
-  const isOfficer = user?.roles.some(r => ["admin", "sponsor", "officer"].includes(r));
+  const staff = isStaffUser(user);
+
+  const [folderId, setFolderId] = useState<number | null>(null);
+  const [path, setPath] = useState<FolderRef[]>([ROOT]);
+  const [items, setItems] = useState<DriveFile[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<DriveFile[] | null>(null);
+  const [view, setView] = useState<"list" | "grid">("list");
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const [renaming, setRenaming] = useState<{ id: number; value: string } | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [newMenu, setNewMenu] = useState(false);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
+  const [moving, setMoving] = useState<DriveFile[] | null>(null);
+  const [perms, setPerms] = useState<DriveFile | null>(null);
+  const [preview, setPreview] = useState<DriveFile | null>(null);
+  const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [dropActive, setDropActive] = useState(false);
+  const [dragOver, setDragOver] = useState<number | "root" | null>(null);
+  const [error, setError] = useState("");
+
+  const dragDepth = useRef(0);
 
   useEffect(() => {
     if (!loading && (!authenticated || !user)) router.push("/");
   }, [loading, authenticated, user, router]);
 
   useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    queueMicrotask(() => {
+      setFolderId(readFolderParam());
+      try {
+        if (localStorage.getItem("drive-view") === "grid") setView("grid");
+      } catch {}
+    });
+    const onPop = () => setFolderId(readFolderParam());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const fetchItems = useCallback(async (folderId: number | null) => {
+  const load = useCallback(async () => {
     try {
       const params = new URLSearchParams({ category: "digital_files" });
       if (folderId !== null) params.set("parentId", String(folderId));
-      const res = await fetch(`/api/resources?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setItems(data.files);
-      }
-    } catch {}
-  }, []);
-
-  const fetchBreadcrumbs = useCallback(async (folderId: number | null) => {
-    const crumbs: Breadcrumb[] = [{ id: null, name: "Digital Files" }];
-    if (folderId === null) {
-      setBreadcrumbs(crumbs);
-      return;
+      const [list, info] = await Promise.all([
+        api<{ files: DriveFile[] }>(`/api/resources?${params}`),
+        folderId !== null ? api<{ path: FolderRef[] }>(`/api/resources?id=${folderId}`) : Promise.resolve({ path: [] }),
+      ]);
+      setItems(list.files);
+      setPath([ROOT, ...info.path]);
+      setError("");
+    } catch (err) {
+      setError((err as Error).message === "Not found" ? "That folder doesn't exist or you don't have access." : (err as Error).message);
+      setItems([]);
     }
-    const ids: number[] = [];
-    let current = folderId;
-    while (current) {
-      ids.unshift(current);
-      try {
-        const res = await fetch(`/api/resources?id=${current}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.file?.parentId) {
-            current = data.file.parentId;
-          } else {
-            break;
-          }
-        } else break;
-      } catch { break; }
-    }
-    for (const id of ids) {
-      try {
-        const res = await fetch(`/api/resources?id=${id}`);
-        if (res.ok) {
-          const data = await res.json();
-          crumbs.push({ id: data.file.id, name: data.file.name });
-        }
-      } catch {}
-    }
-    setBreadcrumbs(crumbs);
-  }, []);
+  }, [folderId]);
 
   useEffect(() => {
-    fetchItems(currentFolderId);
-    fetchBreadcrumbs(currentFolderId);
-  }, [currentFolderId, fetchItems, fetchBreadcrumbs]);
+    if (!user) return;
+    queueMicrotask(() => { void load(); });
+  }, [user, load]);
 
-  const uploadFiles = async (fileList: FileList, parentId: number | null = currentFolderId) => {
-    if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList).filter(f => !f.name.startsWith(".") && !f.webkitRelativePath?.startsWith("."));
-    if (files.length === 0) return;
-    setIsUploading(true);
-    setUploadError(null);
-    const isAdmin = user?.roles.includes("admin");
-    const maxBytes = isAdmin ? Infinity : 25 * 1024 * 1024;
-    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
-    if (totalBytes > maxBytes) {
-      setUploadError("Total upload size exceeds 25 MB limit.");
-      setIsUploading(false);
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      queueMicrotask(() => setResults(null));
       return;
     }
-    const errors: string[] = [];
-    const skipped: string[] = [];
+    const t = setTimeout(() => {
+      api<{ files: DriveFile[] }>(`/api/resources?category=digital_files&q=${encodeURIComponent(q)}`)
+        .then(d => setResults(d.files))
+        .catch(() => setResults([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
 
-    // Quick connectivity test
-    try {
-      const ping = await fetch("/api/resources/upload");
-      if (!ping.ok) { errors.push("Upload route unavailable"); }
-    } catch (e) {
-      errors.push("Upload route unreachable");
+  const open = useCallback((id: number | null) => {
+    setFolderId(id);
+    setSelected(new Set());
+    setQuery("");
+    setItems(null);
+    window.history.pushState(null, "", id === null ? "/resources/digital-files" : `/resources/digital-files?folder=${id}`);
+  }, []);
+
+  const shown = useMemo(() => {
+    const list = [...(results ?? items ?? [])];
+    list.sort((a, b) => {
+      if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+      let cmp: number;
+      if (sort.key === "name") cmp = a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      else if (sort.key === "createdAt") cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      else cmp = (a.fileSize ?? 0) - (b.fileSize ?? 0);
+      return cmp * sort.dir;
+    });
+    return list;
+  }, [items, results, sort]);
+
+  const selection = shown.filter(f => selected.has(f.id));
+
+  const activate = (f: DriveFile) => {
+    if (f.isFolder) open(f.id);
+    else if (PREVIEWABLE.has(kindOf(f))) setPreview(f);
+    else window.open(downloadUrl(f), "_blank");
+  };
+
+  const clickItem = (e: React.MouseEvent, f: DriveFile, index: number) => {
+    e.stopPropagation();
+    setMenu(null);
+    if (e.shiftKey && anchor !== null) {
+      const [a, b] = [Math.min(anchor, index), Math.max(anchor, index)];
+      setSelected(new Set(shown.slice(a, b + 1).map(x => x.id)));
+      return;
     }
-    if (errors.length > 0) { setUploadError(errors.join(", ")); setIsUploading(false); return; }
+    if (e.metaKey || e.ctrlKey) {
+      setSelected(s => {
+        const n = new Set(s);
+        if (n.has(f.id)) n.delete(f.id);
+        else n.add(f.id);
+        return n;
+      });
+    } else {
+      setSelected(new Set([f.id]));
+    }
+    setAnchor(index);
+  };
 
-    const formData = new FormData();
-    for (const f of files) formData.append("files", f);
-    if (parentId !== null) formData.set("parentId", String(parentId));
-    formData.set("category", "digital_files");
+  const run = async (fn: () => Promise<unknown>) => {
+    setError("");
     try {
-      const res = await fetch("/api/resources/upload", { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Upload failed" }));
-        errors.push(err.error);
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+    load();
+  };
+
+  const remove = (targets: DriveFile[]) => {
+    if (!targets.length) return;
+    const label = targets.length === 1 ? `"${targets[0].name}"` : `${targets.length} items`;
+    const hasFolder = targets.some(t => t.isFolder);
+    if (!confirm(`Delete ${label}?${hasFolder ? " Everything inside folders is deleted too." : ""} This can't be undone.`)) return;
+    setSelected(new Set());
+    run(() => api(`/api/resources?ids=${targets.map(t => t.id).join(",")}`, { method: "DELETE" }));
+  };
+
+  const move = (targets: DriveFile[], destination: number | null) => {
+    const ids = targets.filter(t => t.id !== destination).map(t => t.id);
+    if (!ids.length) return;
+    setMoving(null);
+    setSelected(new Set());
+    run(() => api("/api/resources", { method: "PUT", json: { action: "move", ids, parentId: destination } }));
+  };
+
+  const commitRename = () => {
+    if (!renaming) return;
+    const item = shown.find(f => f.id === renaming.id);
+    const name = renaming.value.trim();
+    setRenaming(null);
+    if (!item || !name || name === item.name) return;
+    run(() => api("/api/resources", { method: "PUT", json: { id: item.id, action: "rename", name } }));
+  };
+
+  const createFolder = () => {
+    const name = newFolder?.trim();
+    setNewFolder(null);
+    if (!name) return;
+    run(() => api("/api/resources", { method: "POST", json: { action: "folder", name, parentId: folderId, category: "digital_files" } }));
+  };
+
+  const enqueue = async (pending: Pending[]) => {
+    const files = pending.filter(p => !p.file.name.startsWith(".") && p.file.size > 0);
+    if (!files.length || !staff) return;
+    const base = folderId;
+    const keyed = files.map((p, i) => ({ ...p, key: `${Date.now()}-${i}-${p.file.name}` }));
+    setUploads(u => [
+      ...u.filter(x => x.status !== "done"),
+      ...keyed.map(p => ({ key: p.key, name: [...p.relPath, p.file.name].join("/"), progress: 0, status: "queued" as const })),
+    ]);
+    const patch = (key: string, next: Partial<UploadItem>) => setUploads(u => u.map(x => (x.key === key ? { ...x, ...next } : x)));
+
+    const folders = new Map<string, Promise<number | null>>([["", Promise.resolve(base)]]);
+    const ensureFolder = (parts: string[]): Promise<number | null> => {
+      const key = parts.join("/");
+      if (!folders.has(key)) {
+        folders.set(key, ensureFolder(parts.slice(0, -1)).then(async parent => {
+          const { file } = await api<{ file: { id: number } }>("/api/resources", {
+            method: "POST",
+            json: { action: "folder", name: parts[parts.length - 1], parentId: parent, category: "digital_files" },
+          });
+          return file.id;
+        }));
       }
-    } catch {
-      errors.push("Upload failed — try selecting fewer files");
-    }
-    if (errors.length > 0) setUploadError(errors.join(", "));
-    if (errors.length > 0) {
-      setUploadError(errors.slice(0, 4).join(", ") + (errors.length > 4 ? ` (+${errors.length - 4} more)` : ""));
-    }
-    if (skipped.length > 0) console.log("Skipped:", skipped.join(", "));
-    fetchItems(currentFolderId);
-    setIsUploading(false);
-  };
+      return folders.get(key)!;
+    };
 
-  const handleCreateFolder = async () => {
-    if (!newFolderName.trim()) return;
-    const parentId = createFolderParentRef.current;
-    createFolderParentRef.current = null;
-    try {
-      await fetch("/api/resources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "folder",
-          name: newFolderName.trim(),
-          parentId: parentId ?? currentFolderId,
-          category: "digital_files",
-        }),
-      });
-      setNewFolderName("");
-      setShowCreateFolder(false);
-      fetchItems(currentFolderId);
-    } catch {}
-  };
-
-  const handleRename = async (id: number) => {
-    if (!renameValue.trim()) return;
-    try {
-      await fetch("/api/resources", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "rename", name: renameValue.trim() }),
-      });
-      setRenamingId(null);
-      setRenameValue("");
-      fetchItems(currentFolderId);
-    } catch {}
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm("Delete this item?")) return;
-    try {
-      await fetch(`/api/resources?id=${id}`, { method: "DELETE" });
-      fetchItems(currentFolderId);
-    } catch {}
-  };
-
-  const handleMove = async (id: number, newParentId: number | null) => {
-    try {
-      await fetch("/api/resources", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "move", parentId: newParentId }),
-      });
-      fetchItems(currentFolderId);
-    } catch {}
-  };
-
-  const handleSetPermissions = async () => {
-    if (!permModal) return;
-    try {
-      await fetch("/api/resources/permissions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileId: permModal.id,
-          accessTypes: permAccessTypes,
-          teamIds: permTeamIds,
-        }),
-      });
-      setPermModal(null);
-      setPermAccessTypes(["everyone"]);
-      setPermTeamIds([]);
-    } catch {}
-  };
-
-  const openPermModal = async (item: ResourceFile) => {
-    setPermModal(item);
-    setPermAccessTypes(["everyone"]);
-    setPermTeamIds([]);
-    try {
-      const [teamsRes, permsRes] = await Promise.all([
-        fetch("/api/teams"),
-        fetch(`/api/resources/permissions?fileId=${item.id}`),
-      ]);
-      if (teamsRes.ok) {
-        const tData = await teamsRes.json();
-        setTeams(tData.teams);
-      }
-      if (permsRes.ok) {
-        const pData = await permsRes.json();
-        setExistingPerms(pData.permissions);
-        if (pData.permissions.length > 0) {
-          setPermAccessTypes(pData.permissions.map((p: FilePermission) => p.accessType));
-          setPermTeamIds(pData.permissions.filter((p: FilePermission) => p.teamId).map((p: FilePermission) => p.teamId!));
+    let next = 0;
+    const worker = async () => {
+      while (next < keyed.length) {
+        const p = keyed[next++];
+        patch(p.key, { status: "uploading" });
+        try {
+          const parent = await ensureFolder(p.relPath);
+          await uploadOne(p.file, parent, progress => patch(p.key, { progress }));
+          patch(p.key, { status: "done", progress: 1 });
+        } catch (err) {
+          patch(p.key, { status: "error", error: (err as Error).message });
         }
       }
-    } catch {}
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, keyed.length) }, worker));
+    load();
   };
 
-  const isFileDrag = (e: React.DragEvent) => {
-    return e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files");
+  const onPick = (list: FileList | null, keepPaths: boolean) => {
+    if (!list) return;
+    enqueue(Array.from(list).map(file => ({
+      file,
+      relPath: keepPaths && file.webkitRelativePath ? file.webkitRelativePath.split("/").slice(0, -1) : [],
+    })));
   };
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    if (isFileDrag(e)) {
-      e.preventDefault();
-      setDragActive(true);
-    }
+  const onDropFiles = async (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+    if (!staff || !e.dataTransfer.types.includes("Files")) return;
+    const entries = Array.from(e.dataTransfer.items)
+      .map(i => i.webkitGetAsEntry?.())
+      .filter((x): x is FileSystemEntry => !!x);
+    if (entries.length) enqueue((await Promise.all(entries.map(en => entriesToFiles(en)))).flat());
+    else enqueue(Array.from(e.dataTransfer.files).map(file => ({ file, relPath: [] })));
   };
 
-  const handleDragStart = (e: React.DragEvent, item: ResourceFile) => {
-    e.dataTransfer.setData("text/plain", String(item.id));
+  const dragItemStart = (e: React.DragEvent, f: DriveFile) => {
+    if (!staff) return e.preventDefault();
+    const ids = selected.has(f.id) ? [...selected] : [f.id];
+    if (!selected.has(f.id)) setSelected(new Set([f.id]));
+    e.dataTransfer.setData("application/x-drive-ids", ids.join(","));
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const handleGlobalDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (isFileDrag(e)) {
-      e.dataTransfer.dropEffect = "copy";
-    }
-  };
-
-  const handleGlobalDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(false);
-    setDragOverId(null);
-    const draggedId = Number(e.dataTransfer.getData("text/plain"));
-    if (isFileDrag(e) && e.dataTransfer.files.length > 0) {
-      await uploadFiles(e.dataTransfer.files, currentFolderId);
-    } else if (draggedId && currentFolderId !== null) {
-      await handleMove(draggedId, currentFolderId);
-    }
-  };
-
-  const handleItemDragOver = (e: React.DragEvent, item: ResourceFile) => {
+  const dropOnFolder = (e: React.DragEvent, destination: number | null) => {
+    setDragOver(null);
+    const raw = e.dataTransfer.getData("application/x-drive-ids");
+    if (!raw) return;
     e.preventDefault();
     e.stopPropagation();
-    if (isFileDrag(e)) {
-      e.dataTransfer.dropEffect = "copy";
-    } else {
-      e.dataTransfer.dropEffect = "move";
-    }
-    if (item.isFolder) setDragOverId(item.id);
+    const ids = raw.split(",").map(Number);
+    if (destination !== null && ids.includes(destination)) return;
+    move(shown.filter(f => ids.includes(f.id)), destination);
   };
 
-  const handleItemDrop = async (e: React.DragEvent, targetFolder: ResourceFile) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    setDragOverId(null);
-    if (isFileDrag(e) && e.dataTransfer.files.length > 0) {
-      await uploadFiles(e.dataTransfer.files, targetFolder.id);
-    } else {
-      const draggedId = Number(e.dataTransfer.getData("text/plain"));
-      if (draggedId && targetFolder.isFolder && draggedId !== targetFolder.id) {
-        await handleMove(draggedId, targetFolder.id);
+  const folderDropProps = (id: number | null) => staff ? {
+    onDragOver: (e: React.DragEvent) => {
+      if (e.dataTransfer.types.includes("application/x-drive-ids")) {
+        e.preventDefault();
+        setDragOver(id ?? "root");
       }
-    }
-  };
+    },
+    onDragLeave: () => setDragOver(null),
+    onDrop: (e: React.DragEvent) => dropOnFolder(e, id),
+  } : {};
 
-  const handleContextMenu = (e: React.MouseEvent, folderId: number | null = null) => {
-    if (!isOfficer) return;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.closest("input, textarea, select, [role=dialog]")) return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+        e.preventDefault();
+        setSelected(new Set(shown.map(f => f.id)));
+      } else if (e.key === "Escape") {
+        setSelected(new Set());
+        setMenu(null);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && staff && selection.length) {
+        e.preventDefault();
+        remove(selection);
+      } else if (e.key === "Enter" && selection.length === 1) {
+        activate(selection[0]);
+      } else if (e.key === "F2" && staff && selection.length === 1) {
+        setRenaming({ id: selection[0].id, value: selection[0].name });
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
+  useEffect(() => {
+    if (!menu && !newMenu) return;
+    const close = () => { setMenu(null); setNewMenu(false); };
+    document.addEventListener("click", close);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [menu, newMenu]);
+
+  const openMenu = (e: React.MouseEvent, f: DriveFile | null) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, folderId });
+    if (f && !selected.has(f.id)) setSelected(new Set([f.id]));
+    if (!f && !staff) return;
+    setMenu({ x: Math.min(e.clientX, window.innerWidth - 220), y: Math.min(e.clientY, window.innerHeight - 300), target: f });
   };
 
-  const filtered = items.filter(f =>
-    f.name.toLowerCase().includes(search.toLowerCase())
+  if (loading || !user) return <PageShell title="Digital Files" back={{ href: "/resources", label: "Resources" }} loading />;
+
+  const totalActive = uploads.filter(u => u.status === "queued" || u.status === "uploading").length;
+  const searching = results !== null;
+
+  const headerSort = (key: SortKey, label: string, className = "") => (
+    <th className={`py-2 pr-3 font-medium ${className}`}>
+      <button
+        className="inline-flex items-center gap-1 hover:text-foreground"
+        onClick={() => setSort(s => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}
+      >
+        {label}
+        {sort.key === key && (sort.dir === 1 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+      </button>
+    </th>
   );
 
-  if (loading || !user) return <div className="pt-32 text-center text-white">Loading...</div>;
+  const nameCell = (f: DriveFile) =>
+    renaming?.id === f.id ? (
+      <input
+        autoFocus
+        value={renaming.value}
+        onChange={e => setRenaming({ id: f.id, value: e.target.value })}
+        onBlur={commitRename}
+        onKeyDown={e => {
+          if (e.key === "Enter") commitRename();
+          if (e.key === "Escape") setRenaming(null);
+        }}
+        onClick={e => e.stopPropagation()}
+        onFocus={e => {
+          const dot = f.isFolder ? -1 : f.name.lastIndexOf(".");
+          e.currentTarget.setSelectionRange(0, dot > 0 ? dot : f.name.length);
+        }}
+        className="field py-0.5"
+      />
+    ) : (
+      <span className="truncate">{f.name}</span>
+    );
+
+  const menuButton = (icon: React.ReactNode, label: string, action: () => void, danger = false) => (
+    <button
+      key={label}
+      className={`flex w-full items-center gap-2.5 px-3 py-1.5 hover:bg-white/5 ${danger ? "text-red-400" : ""}`}
+      onClick={() => { setMenu(null); setNewMenu(false); action(); }}
+    >
+      {icon} {label}
+    </button>
+  );
+
+  const createItems = [
+    menuButton(<FolderPlus className="w-4 h-4 text-muted" />, "New folder", () => setNewFolder("")),
+    menuButton(<Upload className="w-4 h-4 text-muted" />, "Upload files", () => document.getElementById("drive-files")?.click()),
+    menuButton(<FolderUp className="w-4 h-4 text-muted" />, "Upload folder", () => document.getElementById("drive-folder")?.click()),
+  ];
 
   return (
-    <div className="pt-24 min-h-screen bg-neutral-900 text-white" ref={pageRef}
-      onContextMenu={handleContextMenu}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleGlobalDragOver}
-      onDrop={handleGlobalDrop}
-    >
-      <div className="max-w-6xl mx-auto px-4 mt-8">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-6 flex-wrap">
-          <Link href="/resources" className="text-gray-400 hover:text-white transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div className="flex items-center gap-1 text-sm flex-wrap">
-            {breadcrumbs.map((crumb, i) => (
-              <span key={crumb.id ?? "root"} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight className="w-3 h-3 text-gray-600" />}
-                {i < breadcrumbs.length - 1 ? (
-                  <button
-                    onClick={() => setCurrentFolderId(crumb.id)}
-                    className="text-gray-400 hover:text-white transition-colors"
-                  >
-                    {crumb.name}
-                  </button>
-                ) : (
-                  <span className="text-white font-medium">{crumb.name}</span>
-                )}
-              </span>
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-              <input
-                type="text" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search..." className="w-48 bg-transparent border border-neutral-600 pl-10 pr-3 py-1.5 text-white text-sm"
-              />
+    <PageShell
+      title="Digital Files"
+      back={{ href: "/resources", label: "Resources" }}
+      actions={staff && (
+        <div className="relative">
+          <button className="btn btn-primary" onClick={e => { e.stopPropagation(); setNewMenu(v => !v); }}>
+            <Plus className="w-4 h-4" /> New
+          </button>
+          {newMenu && (
+            <div className="absolute right-0 top-full mt-1 w-48 z-30 bg-background border border-line py-1 text-sm" onClick={e => e.stopPropagation()}>
+              {createItems}
             </div>
-            <button onClick={() => setViewMode(v => v === "grid" ? "list" : "grid")}
-              className="p-1.5 text-gray-400 hover:text-white transition-colors" title="Toggle view">
-              {viewMode === "grid" ? <List className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
-            </button>
-            {isOfficer && (
-              <>
-                <button onClick={() => fileInputRef.current?.click()}
-                  className="p-1.5 text-gray-400 hover:text-white transition-colors" title="Upload files">
-                  <FileUp className="w-4 h-4" />
+          )}
+          <input id="drive-files" type="file" multiple hidden onChange={e => { onPick(e.target.files, false); e.target.value = ""; }} />
+          <input
+            id="drive-folder"
+            type="file"
+            hidden
+            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            onChange={e => { onPick(e.target.files, true); e.target.value = ""; }}
+          />
+        </div>
+      )}
+    >
+      <div
+        className="relative min-h-[60vh] select-none"
+        onClick={() => { setSelected(new Set()); setMenu(null); }}
+        onContextMenu={e => openMenu(e, null)}
+        onDragEnter={e => {
+          if (!staff || !e.dataTransfer.types.includes("Files")) return;
+          dragDepth.current++;
+          setDropActive(true);
+        }}
+        onDragLeave={() => {
+          if (--dragDepth.current <= 0) { dragDepth.current = 0; setDropActive(false); }
+        }}
+        onDragOver={e => e.dataTransfer.types.includes("Files") && e.preventDefault()}
+        onDrop={onDropFiles}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <nav className="flex items-center flex-wrap gap-0.5 text-lg min-w-0" aria-label="Folder path">
+            {searching ? (
+              <span className="font-medium">Search results</span>
+            ) : (
+              path.map((p, i) => (
+                <span key={p.id ?? "root"} className="flex items-center gap-0.5 min-w-0">
+                  {i > 0 && <ChevronRight className="w-4 h-4 text-muted shrink-0" />}
+                  <button
+                    onClick={e => { e.stopPropagation(); if (i < path.length - 1) open(p.id); }}
+                    {...folderDropProps(p.id)}
+                    className={`px-1.5 py-0.5 truncate max-w-56 ${i === path.length - 1 ? "font-medium" : "text-muted hover:text-foreground"} ${
+                      dragOver === (p.id ?? "root") ? "bg-accent/20 outline outline-1 outline-accent" : ""
+                    }`}
+                  >
+                    {p.name}
+                  </button>
+                </span>
+              ))
+            )}
+          </nav>
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all files" className="field pl-8 w-56" />
+              {query && (
+                <button onClick={() => setQuery("")} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
                 </button>
-                <input ref={fileInputRef} type="file" multiple className="hidden"
-                  onChange={e => {
-                    const target = uploadTargetRef.current;
-                    uploadFiles(e.target.files as FileList, target);
-                    uploadTargetRef.current = null;
-                    e.target.value = "";
-                  }} />
+              )}
+            </div>
+            <div className="flex border border-line">
+              {(["list", "grid"] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => { setView(v); try { localStorage.setItem("drive-view", v); } catch {} }}
+                  aria-label={`${v} view`}
+                  aria-pressed={view === v}
+                  className={`p-1.5 ${view === v ? "bg-white/10 text-foreground" : "text-muted hover:text-foreground"}`}
+                >
+                  {v === "list" ? <List className="w-4 h-4" /> : <Grid3X3 className="w-4 h-4" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
-                <button onClick={() => { setShowCreateFolder(true); setNewFolderName(""); }}
-                  className="p-1.5 text-gray-400 hover:text-white transition-colors" title="New folder">
-                  <FolderPlus className="w-4 h-4" />
+        {selection.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 mb-3 px-2 py-1.5 bg-white/5 text-sm" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setSelected(new Set())} aria-label="Clear selection" className="p-1 text-muted hover:text-foreground"><X className="w-4 h-4" /></button>
+            <span className="mr-3">{selection.length} selected</span>
+            {selection.every(s => !s.isFolder) && (
+              <button className="inline-flex items-center gap-1.5 px-2 py-1 hover:bg-white/10" onClick={() => selection.forEach(s => window.open(downloadUrl(s), "_blank"))}>
+                <Download className="w-4 h-4" /> Download
+              </button>
+            )}
+            {staff && (
+              <>
+                <button className="inline-flex items-center gap-1.5 px-2 py-1 hover:bg-white/10" onClick={() => setMoving(selection)}>
+                  <FolderInput className="w-4 h-4" /> Move
+                </button>
+                {selection.length === 1 && (
+                  <>
+                    <button className="inline-flex items-center gap-1.5 px-2 py-1 hover:bg-white/10" onClick={() => setRenaming({ id: selection[0].id, value: selection[0].name })}>
+                      <Pencil className="w-4 h-4" /> Rename
+                    </button>
+                    <button className="inline-flex items-center gap-1.5 px-2 py-1 hover:bg-white/10" onClick={() => setPerms(selection[0])}>
+                      <Shield className="w-4 h-4" /> Access
+                    </button>
+                  </>
+                )}
+                <button className="inline-flex items-center gap-1.5 px-2 py-1 text-red-400 hover:bg-white/10" onClick={() => remove(selection)}>
+                  <Trash2 className="w-4 h-4" /> Delete
                 </button>
               </>
             )}
           </div>
-        </div>
+        )}
 
-        {/* Create folder inline form */}
-        {showCreateFolder && (
-          <div className="flex items-center gap-2 mb-4 bg-neutral-800 border border-neutral-700 px-3 py-2">
-            <Folder className="w-5 h-5 text-yellow-500" />
-            <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
-              placeholder="Folder name" autoFocus className="flex-1 bg-transparent text-white text-sm border-b border-neutral-600 pb-0.5"
-              onKeyDown={e => { if (e.key === "Enter") handleCreateFolder(); if (e.key === "Escape") setShowCreateFolder(false); }} />
-            <button onClick={handleCreateFolder} className="p-1 text-green-400 hover:text-green-300"><Check className="w-4 h-4" /></button>
-            <button onClick={() => setShowCreateFolder(false)} className="p-1 text-gray-400 hover:text-white"><X className="w-4 h-4" /></button>
+        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+
+        {newFolder !== null && (
+          <div className="mb-3 flex items-center gap-2 max-w-md" onClick={e => e.stopPropagation()}>
+            <FileIcon kind="folder" />
+            <input
+              autoFocus
+              value={newFolder}
+              placeholder="Folder name"
+              onChange={e => setNewFolder(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") setNewFolder(null); }}
+              className="field"
+            />
+            <button className="btn btn-primary" onClick={createFolder}>Create</button>
+            <button className="btn" onClick={() => setNewFolder(null)}>Cancel</button>
           </div>
         )}
 
-        {/* Upload indicator */}
-        {isUploading && (
-          <div className="mb-4 px-3 py-2 bg-blue-900/30 border border-blue-700 text-blue-300 text-sm">
-            Uploading files...
+        {(searching ? results : items) === null ? (
+          <p className="text-muted py-10 text-center">Loading…</p>
+        ) : shown.length === 0 ? (
+          <div className="py-20 text-center text-muted">
+            <FileIcon kind="folder" className="w-12 h-12 mx-auto mb-3 opacity-60" />
+            {searching ? "No files match your search." : staff ? "This folder is empty. Drop files here or use New." : "This folder is empty."}
           </div>
-        )}
-        {uploadError && (
-          <div className="mb-4 px-3 py-2 bg-red-900/30 border border-red-700 text-red-300 text-sm flex items-center gap-2">
-            <span>{uploadError}</span>
-            <button onClick={() => setUploadError(null)} className="ml-auto text-red-400 hover:text-white"><X className="w-3 h-3" /></button>
-          </div>
-        )}
-
-        {/* Files area */}
-        {viewMode === "grid" ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {filtered.map((item) => (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, item)}
-                onDragOver={(e) => handleItemDragOver(e, item)}
-                onDragLeave={() => setDragOverId(null)}
-                onDrop={(e) => handleItemDrop(e, item)}
-                onDoubleClick={() => { if (item.isFolder) setCurrentFolderId(item.id); }}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(item.id); setMenuPos({ x: e.clientX, y: e.clientY }); }}
-                className={`relative group bg-neutral-800 border rounded-lg p-3 cursor-default transition-all
-                  ${item.isFolder ? "hover:border-blue-500/50" : "hover:border-white/30"}
-                  ${dragOverId === item.id ? "border-blue-500 bg-blue-900/20" : "border-neutral-700"}`}
-              >
-                <div className="flex items-start justify-between">
-                  {item.isFolder ? (
-                    <Folder className="w-10 h-10 text-yellow-500" />
-                  ) : (
-                    <FileIcon name={item.name} />
-                  )}
-                  {isOfficer && (
-                    <div className="relative">
-                      <button onClick={(e) => { e.stopPropagation(); if (menuOpen === item.id) { setMenuOpen(null); setMenuPos(null); } else { const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 160, y: r.bottom }); setMenuOpen(item.id); } }}
-                        className="p-0.5 text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                      {(menuOpen === item.id) && (
-                        <DropdownMenu
-                          item={item}
-                          position={menuPos ?? undefined}
-                          onClose={() => { setMenuOpen(null); setMenuPos(null); }}
-                          onRename={() => { setRenamingId(item.id); setRenameValue(item.name); setMenuOpen(null); }}
-                          onDelete={() => handleDelete(item.id)}
-                          onPermissions={() => openPermModal(item)}
-                          onUploadTo={() => { uploadTargetRef.current = item.id; fileInputRef.current?.click(); setMenuOpen(null); }}
-                          onAddSubfolder={() => { createFolderParentRef.current = item.id; setShowCreateFolder(true); setNewFolderName(""); setMenuOpen(null); }}
-                        />
-                      )}
+        ) : view === "list" ? (
+          <table className="w-full text-left text-sm table-fixed">
+            <thead>
+              <tr className="border-b border-line text-xs text-muted">
+                {headerSort("name", "Name")}
+                <th className="py-2 pr-3 font-medium w-40 hidden md:table-cell">Owner</th>
+                {headerSort("createdAt", "Added", "w-32 hidden sm:table-cell")}
+                {headerSort("fileSize", "Size", "w-24 hidden sm:table-cell")}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((f, i) => (
+                <tr
+                  key={f.id}
+                  draggable={staff && renaming?.id !== f.id}
+                  onDragStart={e => dragItemStart(e, f)}
+                  {...(f.isFolder ? folderDropProps(f.id) : {})}
+                  onClick={e => clickItem(e, f, i)}
+                  onDoubleClick={() => activate(f)}
+                  onContextMenu={e => openMenu(e, f)}
+                  className={`border-b border-line cursor-default ${selected.has(f.id) ? "bg-accent/15" : "hover:bg-white/5"} ${
+                    dragOver === f.id ? "outline outline-1 outline-accent bg-accent/20" : ""
+                  }`}
+                >
+                  <td className="py-2 pr-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <FileIcon kind={kindOf(f)} />
+                      {nameCell(f)}
                     </div>
-                  )}
-                </div>
-
-                {renamingId === item.id ? (
-                  <input type="text" value={renameValue} onChange={e => setRenameValue(e.target.value)}
-                    autoFocus className="mt-2 w-full bg-transparent border border-neutral-600 px-1 py-0.5 text-xs text-white"
-                    onBlur={() => handleRename(item.id)}
-                    onKeyDown={e => { if (e.key === "Enter") handleRename(item.id); if (e.key === "Escape") setRenamingId(null); }} />
-                ) : (
-                  <button onClick={() => { if (item.isFolder) setCurrentFolderId(item.id); }}
-                    className="mt-2 text-xs text-left w-full truncate text-gray-300 hover:text-white">
-                    {item.name}
-                  </button>
-                )}
-
-                {!item.isFolder && (
-                  <p className="text-[10px] text-gray-500 mt-0.5">{formatSize(item.fileSize)}</p>
-                )}
-              </div>
-            ))}
-            {filtered.length === 0 && (
-              <p className="text-gray-500 text-sm col-span-full text-center py-12">
-                {isOfficer ? "Drop files anywhere or right-click to upload" : "No files yet."}
-              </p>
-            )}
-          </div>
+                  </td>
+                  <td className="py-2 pr-3 text-muted truncate hidden md:table-cell">{f.ownerName || "—"}</td>
+                  <td className="py-2 pr-3 text-muted hidden sm:table-cell">{formatModified(f.createdAt)}</td>
+                  <td className="py-2 pr-3 text-muted hidden sm:table-cell">{f.isFolder ? "—" : formatSize(f.fileSize)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         ) : (
-          <div className="border border-neutral-700 rounded-lg overflow-hidden">
-            {filtered.map((item) => (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, item)}
-                onDragOver={(e) => handleItemDragOver(e, item)}
-                onDragLeave={() => setDragOverId(null)}
-                onDrop={(e) => handleItemDrop(e, item)}
-                onDoubleClick={() => { if (item.isFolder) setCurrentFolderId(item.id); }}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(item.id); setMenuPos({ x: e.clientX, y: e.clientY }); }}
-                className={`flex items-center gap-3 px-3 py-2 border-b border-neutral-800 last:border-0
-                  hover:bg-neutral-800 transition-colors cursor-default
-                  ${dragOverId === item.id ? "bg-blue-900/20" : ""}`}
-              >
-                {item.isFolder ? (
-                  <Folder className="w-5 h-5 text-yellow-500 shrink-0" />
-                ) : (
-                  <FileIcon name={item.name} className="w-5 h-5 shrink-0" />
-                )}
-                <button onClick={() => { if (item.isFolder) setCurrentFolderId(item.id); }}
-                  className="flex-1 text-sm text-left text-gray-300 hover:text-white truncate">
-                  {item.name}
-                </button>
-                {!item.isFolder && (
-                  <span className="text-xs text-gray-500 w-20 text-right">{formatSize(item.fileSize)}</span>
-                )}
-                {isOfficer && (
-                  <div className="relative">
-                    <button onClick={(e) => { if (menuOpen === item.id) { setMenuOpen(null); setMenuPos(null); } else { const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right - 160, y: r.bottom }); setMenuOpen(item.id); } }}
-                      className="p-1 text-gray-500 hover:text-white transition-colors">
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                    {(menuOpen === item.id) && (
-                      <DropdownMenu
-                        item={item}
-                        position={menuPos ?? undefined}
-                        onClose={() => { setMenuOpen(null); setMenuPos(null); }}
-                        onRename={() => { setRenamingId(item.id); setRenameValue(item.name); setMenuOpen(null); }}
-                        onDelete={() => handleDelete(item.id)}
-                        onPermissions={() => openPermModal(item)}
-                        onUploadTo={() => { uploadTargetRef.current = item.id; fileInputRef.current?.click(); setMenuOpen(null); }}
-                        onAddSubfolder={() => { createFolderParentRef.current = item.id; setShowCreateFolder(true); setNewFolderName(""); setMenuOpen(null); }}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-            {filtered.length === 0 && (
-              <p className="text-gray-500 text-sm text-center py-8">No files yet.</p>
-            )}
-          </div>
-        )}
-
-        {/* Permissions Modal */}
-        {permModal && (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-            onClick={() => setPermModal(null)}>
-            <div className="bg-neutral-800 border border-neutral-700 p-6 w-full max-w-md mx-4"
-              onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium text-sm">
-                  Set Permissions: <span className="text-blue-400">{permModal.name}</span>
-                </h3>
-                <button onClick={() => setPermModal(null)} className="text-gray-400 hover:text-white">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {existingPerms.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs text-gray-500 mb-2">Current permissions:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {existingPerms.map(p => (
-                      <span key={p.id} className="text-xs px-2 py-0.5 bg-neutral-700 text-gray-300 rounded">
-                        {p.accessType}{p.teamId ? ` (team #${p.teamId})` : ""}
-                      </span>
-                    ))}
+          <div className="space-y-6">
+            {[true, false].map(folders => {
+              const group = shown.filter(f => f.isFolder === folders);
+              if (!group.length) return null;
+              return (
+                <div key={String(folders)}>
+                  <h3 className="text-sm text-muted mb-2">{folders ? "Folders" : "Files"}</h3>
+                  <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+                    {group.map(f => {
+                      const kind = kindOf(f);
+                      return (
+                        <div
+                          key={f.id}
+                          draggable={staff && renaming?.id !== f.id}
+                          onDragStart={e => dragItemStart(e, f)}
+                          {...(f.isFolder ? folderDropProps(f.id) : {})}
+                          onClick={e => clickItem(e, f, shown.indexOf(f))}
+                          onDoubleClick={() => activate(f)}
+                          onContextMenu={e => openMenu(e, f)}
+                          className={`border cursor-default overflow-hidden ${
+                            selected.has(f.id) ? "border-accent bg-accent/15" : "border-line hover:bg-white/5"
+                          } ${dragOver === f.id ? "outline outline-1 outline-accent bg-accent/20" : ""}`}
+                        >
+                          {!folders && (
+                            <div className="h-28 flex items-center justify-center border-b border-line overflow-hidden">
+                              {kind === "image" && f.fileUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={f.fileUrl} alt="" loading="lazy" draggable={false} className="w-full h-full object-cover" />
+                              ) : (
+                                <FileIcon kind={kind} className="w-10 h-10" />
+                              )}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 px-3 py-2.5 min-w-0 text-sm">
+                            <FileIcon kind={kind} className="w-4 h-4" />
+                            {nameCell(f)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
-
-              <div className="space-y-2 mb-4">
-                <p className="text-xs text-gray-400">Who can access this file? (select all that apply)</p>
-                {["everyone", "arc", "sli", "officers", "admin", "team"].map(type => (
-                  <label key={type} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" value={type}
-                      checked={permAccessTypes.includes(type)}
-                      onChange={() => {
-                        setPermAccessTypes(prev => {
-                          if (prev.includes(type)) return prev.filter(t => t !== type);
-                          return [...prev, type];
-                        });
-                        if (type === "team" && permAccessTypes.includes("team")) {
-                          setPermTeamIds([]);
-                        }
-                      }}
-                      className="accent-blue-500" />
-                    <span className="text-sm text-gray-300 capitalize">{type}</span>
-                  </label>
-                ))}
-                {permAccessTypes.includes("team") && (
-                  <div className="ml-6 mt-2 space-y-1 border-l-2 border-neutral-600 pl-3">
-                    <p className="text-xs text-gray-500">Select teams:</p>
-                    {teams.map(t => (
-                      <label key={t.id} className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" value={t.id}
-                          checked={permTeamIds.includes(t.id)}
-                          onChange={() => {
-                            setPermTeamIds(prev =>
-                              prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id]
-                            );
-                          }}
-                          className="accent-blue-500" />
-                        <span className="text-sm text-gray-300">{t.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setPermModal(null)}
-                  className="px-3 py-1.5 text-sm text-gray-400 hover:text-white">Cancel</button>
-                <button onClick={handleSetPermissions}
-                  className="px-3 py-1.5 text-sm border border-white text-white hover:bg-white hover:text-neutral-900">
-                  Save
-                </button>
-              </div>
-            </div>
+              );
+            })}
           </div>
         )}
 
-        {/* Drag overlay */}
-        {dragActive && (
-          <div className="fixed inset-0 z-50 bg-blue-900/40 flex items-center justify-center pointer-events-none">
-            <div className="border-2 border-dashed border-blue-400 bg-neutral-900/80 px-12 py-8 text-center">
-              <FileUp className="w-10 h-10 text-blue-400 mx-auto mb-3" />
-              <p className="text-lg text-blue-300 font-medium">Drop files anywhere to upload</p>
-              <p className="text-sm text-blue-400/60 mt-1">Files will be placed in the current folder</p>
+        {dropActive && (
+          <div className="absolute inset-0 z-20 border-2 border-dashed border-accent bg-accent/10 flex items-center justify-center pointer-events-none">
+            <div className="text-center">
+              <Upload className="w-10 h-10 text-accent mx-auto mb-2" />
+              <p className="font-medium">Drop to upload to {path[path.length - 1].name}</p>
+              <p className="text-sm text-muted">Folders keep their structure</p>
             </div>
-          </div>
-        )}
-
-        {/* Context Menu */}
-        {contextMenu && isOfficer && (
-          <div ref={ctxRef}
-            style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y, zIndex: 100 }}
-            className="w-48 bg-neutral-800 border border-neutral-700 shadow-xl py-1">
-            <button onClick={() => {
-              uploadTargetRef.current = contextMenu.folderId;
-              fileInputRef.current?.click();
-              setContextMenu(null);
-            }}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-              <FileUp className="w-4 h-4" /> Upload File
-            </button>
-
-            <button onClick={() => {
-              createFolderParentRef.current = contextMenu.folderId;
-              setShowCreateFolder(true);
-              setNewFolderName("");
-              setContextMenu(null);
-            }}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-              <Folder className="w-4 h-4" /> Add Folder
-            </button>
           </div>
         )}
       </div>
-    </div>
-  );
-}
 
-function FileIcon({ name, className }: { name: string; className?: string }) {
-  const ext = name.split(".").pop()?.toLowerCase() || "";
-  const label = ext === "stl" ? "STL" : ext.slice(0, 4).toUpperCase();
-  const type = getFileIcon(name);
-  const colors: Record<string, string> = {
-    pdf: "bg-red-900/30 text-red-300 border-red-700",
-    image: "bg-green-900/30 text-green-300 border-green-700",
-    doc: "bg-blue-900/30 text-blue-300 border-blue-700",
-    sheet: "bg-emerald-900/30 text-emerald-300 border-emerald-700",
-    archive: "bg-orange-900/30 text-orange-300 border-orange-700",
-    code: "bg-purple-900/30 text-purple-300 border-purple-700",
-  };
-  const color = colors[type] || "bg-neutral-800 text-gray-300 border-neutral-600";
-  const cls = className || "w-10 h-10";
-
-  if (className) {
-    return <FileText className={`${cls} ${color.split(" ").find(c => c.startsWith("text-")) || "text-gray-400"}`} />;
-  }
-
-  return (
-    <div className={`w-14 h-14 rounded-lg border flex items-center justify-center text-xs font-bold ${color}`}>
-      {label}
-    </div>
-  );
-}
-
-function DropdownMenu({ item, position, onClose, onRename, onDelete, onPermissions, onUploadTo, onAddSubfolder }: {
-  item: ResourceFile;
-  position?: { x: number; y: number };
-  onClose: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-  onPermissions: () => void;
-  onUploadTo?: () => void;
-  onAddSubfolder?: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  const style: React.CSSProperties = { position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 100 };
-
-  return (
-    <div ref={ref} style={style}
-      className="w-40 bg-neutral-800 border border-neutral-700 shadow-xl py-1">
-      {!item.isFolder && (
-        <a href={item.fileUrl || "#"} target="_blank" rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-neutral-700 transition-colors"
-          onClick={onClose}>
-          <Download className="w-3.5 h-3.5" /> Download
-        </a>
+      {menu && (
+        <div
+          style={{ left: menu.x, top: menu.y }}
+          className="fixed z-50 w-52 bg-background border border-line py-1 text-sm shadow-2xl"
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.preventDefault()}
+        >
+          {menu.target ? (() => {
+            const t = menu.target;
+            const targets = selected.size > 1 && selected.has(t.id) ? selection : [t];
+            const single = targets.length === 1;
+            return (
+              <>
+                {single && menuButton(
+                  t.isFolder ? <FolderInput className="w-4 h-4 text-muted" /> : <Eye className="w-4 h-4 text-muted" />,
+                  t.isFolder ? "Open" : PREVIEWABLE.has(kindOf(t)) ? "Preview" : "Open",
+                  () => activate(t),
+                )}
+                {targets.every(x => !x.isFolder) && menuButton(
+                  <Download className="w-4 h-4 text-muted" />,
+                  single ? "Download" : `Download ${targets.length}`,
+                  () => targets.forEach(x => window.open(downloadUrl(x), "_blank")),
+                )}
+                {staff && (
+                  <>
+                    <hr className="border-line my-1" />
+                    {single && menuButton(<Pencil className="w-4 h-4 text-muted" />, "Rename", () => setRenaming({ id: t.id, value: t.name }))}
+                    {menuButton(<FolderInput className="w-4 h-4 text-muted" />, "Move to…", () => setMoving(targets))}
+                    {single && menuButton(<Shield className="w-4 h-4 text-muted" />, "Who can see this", () => setPerms(t))}
+                    <hr className="border-line my-1" />
+                    {menuButton(<Trash2 className="w-4 h-4" />, single ? "Delete" : `Delete ${targets.length}`, () => remove(targets), true)}
+                  </>
+                )}
+              </>
+            );
+          })() : createItems}
+        </div>
       )}
-      {item.isFolder && onUploadTo && (
-        <button onClick={onUploadTo}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-          <FileUp className="w-3.5 h-3.5" /> Upload File
-        </button>
+
+      {uploads.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-40 w-80 bg-background border border-line shadow-2xl">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-line text-sm">
+            <span className="font-medium">
+              {totalActive
+                ? `Uploading ${totalActive} item${totalActive === 1 ? "" : "s"}…`
+                : `${uploads.filter(u => u.status === "done").length} of ${uploads.length} uploaded`}
+            </span>
+            {!totalActive && (
+              <button onClick={() => setUploads([])} aria-label="Close uploads" className="text-muted hover:text-foreground"><X className="w-4 h-4" /></button>
+            )}
+          </div>
+          <ul className="max-h-60 overflow-y-auto text-sm">
+            {uploads.map(u => (
+              <li key={u.key} className="px-3 py-2 border-b border-line last:border-0">
+                <div className="flex items-center gap-2">
+                  <FileIcon kind={kindOf({ name: u.name, isFolder: false })} className="w-4 h-4" />
+                  <span className="truncate flex-1" title={u.name}>{u.name}</span>
+                  {u.status === "done" && <Check className="w-4 h-4 text-green-400" />}
+                  {u.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-muted" />}
+                  {u.status === "error" && <AlertCircle className="w-4 h-4 text-red-400" />}
+                </div>
+                {u.status === "uploading" && (
+                  <div className="h-0.5 bg-line mt-1.5">
+                    <div className="h-full bg-accent transition-all" style={{ width: `${Math.round(u.progress * 100)}%` }} />
+                  </div>
+                )}
+                {u.error && <p className="text-xs text-red-400 mt-1">{u.error}</p>}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      {item.isFolder && onAddSubfolder && (
-        <button onClick={onAddSubfolder}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-          <FolderPlus className="w-3.5 h-3.5" /> Add Folder
-        </button>
-      )}
-      <button onClick={onRename}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-        <Pencil className="w-3.5 h-3.5" /> Rename
-      </button>
-      <button onClick={onPermissions}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 hover:bg-neutral-700 w-full text-left transition-colors">
-        <Shield className="w-3.5 h-3.5" /> Permissions
-      </button>
-      <button onClick={onDelete}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-neutral-700 w-full text-left transition-colors">
-        <Trash2 className="w-3.5 h-3.5" /> Delete
-      </button>
-    </div>
+
+      {moving && <MoveDialog items={moving} currentFolder={folderId} onClose={() => setMoving(null)} onMove={dest => move(moving, dest)} />}
+      {perms && <PermissionsDialog item={perms} onClose={() => setPerms(null)} />}
+      {preview && <PreviewDialog file={preview} onClose={() => setPreview(null)} />}
+    </PageShell>
   );
 }

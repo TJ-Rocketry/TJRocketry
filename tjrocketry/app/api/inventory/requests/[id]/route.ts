@@ -1,67 +1,83 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import {
-  checkoutRequests,
-  inventoryItems,
-  inventoryLogs,
-  notifications,
-} from "@/lib/db/schema";
-import { getCurrentUser } from "@/lib/auth";
+import { checkoutRequests, inventoryItems, notifications } from "@/lib/db/schema";
+import { getCurrentUser, isStaff } from "@/lib/auth";
+import { InventoryError, takeFromStock } from "@/lib/inventory";
 
+// PUT — officers approve/reject; the requester can cancel their own pending request.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
-  if (!user || !user.roles.some(r => ["admin", "sponsor", "officer"].includes(r))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  }
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { id } = await params;
   try {
-    const { id } = await params;
     const { status } = await req.json();
-    if (!["approved", "rejected"].includes(status)) {
+    if (!["approved", "rejected", "cancelled"].includes(status)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
-    const [request] = await db.query.checkoutRequests.findMany({
-      where: eq(checkoutRequests.id, parseInt(id)),
-      with: { item: true },
-      limit: 1,
-    });
+    const updated = await db.transaction(async tx => {
+      const [request] = await tx
+        .select()
+        .from(checkoutRequests)
+        .where(eq(checkoutRequests.id, Number(id)))
+        .for("update");
+      if (!request) throw new InventoryError("Request not found", 404);
+      if (request.status !== "pending") throw new InventoryError("This request was already handled");
 
-    if (!request) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if (request.status !== "pending") return NextResponse.json({ error: "Already processed" }, { status: 400 });
+      if (status === "cancelled") {
+        if (request.userId !== user.id) throw new InventoryError("Unauthorized", 403);
+      } else if (!isStaff(user.roles)) {
+        throw new InventoryError("Unauthorized", 403);
+      }
 
-    const [updated] = await db
-      .update(checkoutRequests)
-      .set({ status, approvedBy: user.id, updatedAt: new Date() })
-      .where(eq(checkoutRequests.id, parseInt(id)))
-      .returning();
+      let itemName = "";
+      if (status === "approved") {
+        const { item } = await takeFromStock(tx, {
+          itemId: request.itemId,
+          userId: request.userId,
+          quantity: request.quantity,
+          note: request.note,
+          approvedById: user.id,
+          actorId: user.id,
+        });
+        itemName = item.name;
+      } else {
+        const [item] = await tx.select({ name: inventoryItems.name }).from(inventoryItems).where(eq(inventoryItems.id, request.itemId));
+        itemName = item?.name ?? "item";
+      }
 
-    if (status === "approved") {
-      await db
-        .update(inventoryItems)
-        .set({ quantity: request.item!.quantity - request.quantity, updatedAt: new Date() })
-        .where(eq(inventoryItems.id, request.itemId));
+      const [row] = await tx
+        .update(checkoutRequests)
+        .set({
+          status,
+          approvedBy: status === "cancelled" ? null : user.id,
+          decidedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(checkoutRequests.id, request.id))
+        .returning();
 
-      await db.insert(inventoryLogs).values({
-        itemId: request.itemId,
-        userId: user.id,
-        change: -request.quantity,
-        type: "checkout",
-      });
-    }
-
-    await db.insert(notifications).values({
-      userId: request.userId,
-      title: status === "approved" ? "Checkout Approved" : "Checkout Rejected",
-      message: status === "approved"
-        ? `Your request for ${request.quantity}x ${request.item!.name} was approved by ${user.name || "an officer"}`
-        : `Your request for ${request.quantity}x ${request.item!.name} was rejected`,
-      link: "/inventory",
+      if (status !== "cancelled") {
+        await tx.insert(notifications).values({
+          userId: request.userId,
+          title: status === "approved" ? "Checkout approved" : "Checkout rejected",
+          message: status === "approved"
+            ? `${user.name || "An officer"} approved ${request.quantity}× ${itemName}. It's checked out to you now.`
+            : `Your request for ${request.quantity}× ${itemName} was rejected.`,
+          link: "/inventory?tab=mine",
+        });
+      }
+      return row;
     });
 
     return NextResponse.json({ request: updated });
-  } catch {
+  } catch (error) {
+    if (error instanceof InventoryError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    console.error("Failed to update request:", error);
     return NextResponse.json({ error: "Failed to update request" }, { status: 500 });
   }
 }

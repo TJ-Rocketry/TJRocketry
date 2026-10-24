@@ -1,69 +1,53 @@
 import { NextResponse } from "next/server";
-import { eq, gte, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { attendanceBlocks, attendanceRecords } from "@/lib/db/schema";
-import { checkAdminOrSponsorAccess, checkAdminSponsorOrOfficerAccess } from "@/lib/auth";
+import { attendanceBlocks } from "@/lib/db/schema";
+import { checkAdminSponsorOrOfficerAccess } from "@/lib/auth";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const date = searchParams.get("date");
-  const range = searchParams.get("range");
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-  if (range === "week") {
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const blocks = await db.query.attendanceBlocks.findMany({
-      where: gte(attendanceBlocks.date, weekAgo),
-      with: {
-        records: { with: { user: true } },
-      },
-      orderBy: desc(attendanceBlocks.date),
-    });
-    return NextResponse.json({ blocks });
-  }
-
-  if (date) {
-    const blocks = await db.query.attendanceBlocks.findMany({
-      where: eq(attendanceBlocks.date, new Date(date)),
-      with: {
-        records: { with: { user: true } },
-      },
-      orderBy: desc(attendanceBlocks.createdAt),
-    });
-    return NextResponse.json({ blocks });
-  }
-
-  const blocks = await db.query.attendanceBlocks.findMany({
-    with: {
-      records: { with: { user: true } },
-    },
-    orderBy: desc(attendanceBlocks.createdAt),
-  });
-  return NextResponse.json({ blocks });
+function parseBlock(body: { blockType?: unknown; date?: unknown; code?: unknown }) {
+  const blockType = typeof body.blockType === "string" ? body.blockType.trim() : "";
+  const date = typeof body.date === "string" ? body.date.split("T")[0] : "";
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  if (!blockType || !DATE_RE.test(date) || !code) return null;
+  return { blockType, date: new Date(date), code };
 }
 
-export async function POST(request: Request) {
-  const isAuthorized = await checkAdminOrSponsorAccess();
-  if (!isAuthorized) {
+// GET — every block with its attendees, newest first (staff only)
+export async function GET() {
+  if (!(await checkAdminSponsorOrOfficerAccess())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const { blockType, date, code } = await request.json();
+    const blocks = await db.query.attendanceBlocks.findMany({
+      with: {
+        records: {
+          columns: { id: true, timestamp: true },
+          with: { user: { columns: { id: true, name: true, username: true, classYear: true } } },
+        },
+      },
+      orderBy: [desc(attendanceBlocks.date), desc(attendanceBlocks.createdAt)],
+    });
+    return NextResponse.json({ blocks });
+  } catch (error) {
+    console.error("Failed to fetch blocks:", error);
+    return NextResponse.json({ error: "Failed to fetch blocks" }, { status: 500 });
+  }
+}
 
-    if (!blockType || !date || !code) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+export async function POST(request: Request) {
+  if (!(await checkAdminSponsorOrOfficerAccess())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  try {
+    const values = parseBlock(await request.json());
+    if (!values) {
+      return NextResponse.json({ error: "Block type, date, and code are required" }, { status: 400 });
     }
-
-    const [block] = await db
-      .insert(attendanceBlocks)
-      .values({
-        blockType,
-        date: new Date(date),
-        code,
-      })
-      .returning();
-
+    const [block] = await db.insert(attendanceBlocks).values(values).returning();
     return NextResponse.json({ success: true, block });
   } catch (error) {
     console.error("Failed to create block:", error);
@@ -72,28 +56,45 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const isAuthorized = await checkAdminOrSponsorAccess();
-  if (!isAuthorized) {
+  if (!(await checkAdminSponsorOrOfficerAccess())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const { id, blockType, date, code } = await request.json();
-
-    if (!id || !blockType || !date || !code) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    const body = await request.json();
+    const values = parseBlock(body);
+    if (!body.id || !values) {
+      return NextResponse.json({ error: "Block type, date, and code are required" }, { status: 400 });
     }
-
     const [block] = await db
       .update(attendanceBlocks)
-      .set({
-        blockType,
-        date: new Date(date),
-        code,
-      })
+      .set(values)
+      .where(eq(attendanceBlocks.id, Number(body.id)))
+      .returning();
+    if (!block) return NextResponse.json({ error: "Block not found" }, { status: 404 });
+    return NextResponse.json({ success: true, block });
+  } catch (error) {
+    console.error("Failed to update block:", error);
+    return NextResponse.json({ error: "Failed to update block" }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  if (!(await checkAdminSponsorOrOfficerAccess())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  try {
+    const { id, isClosed } = await request.json();
+    if (!id || typeof isClosed !== "boolean") {
+      return NextResponse.json({ error: "Missing block id or status" }, { status: 400 });
+    }
+    const [block] = await db
+      .update(attendanceBlocks)
+      .set({ isClosed })
       .where(eq(attendanceBlocks.id, Number(id)))
       .returning();
-
+    if (!block) return NextResponse.json({ error: "Block not found" }, { status: 404 });
     return NextResponse.json({ success: true, block });
   } catch (error) {
     console.error("Failed to update block:", error);
@@ -102,49 +103,17 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const isAuthorized = await checkAdminSponsorOrOfficerAccess();
-  if (!isAuthorized) {
+  if (!(await checkAdminSponsorOrOfficerAccess())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   try {
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-
-    if (!id) {
-      return NextResponse.json({ error: "Missing block id" }, { status: 400 });
-    }
-
+    const id = new URL(request.url).searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "Missing block id" }, { status: 400 });
     await db.delete(attendanceBlocks).where(eq(attendanceBlocks.id, Number(id)));
-
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to delete block:", error);
     return NextResponse.json({ error: "Failed to delete block" }, { status: 500 });
-  }
-}
-
-export async function PATCH(request: Request) {
-  const isAuthorized = await checkAdminSponsorOrOfficerAccess();
-  if (!isAuthorized) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-  }
-
-  try {
-    const { id, isClosed } = await request.json();
-    if (!id) {
-      return NextResponse.json({ error: "Missing block id" }, { status: 400 });
-    }
-
-    const [block] = await db
-      .update(attendanceBlocks)
-      .set({ isClosed })
-      .where(eq(attendanceBlocks.id, Number(id)))
-      .returning();
-
-    return NextResponse.json({ success: true, block });
-  } catch (error) {
-    console.error("Failed to update block:", error);
-    return NextResponse.json({ error: "Failed to update block" }, { status: 500 });
   }
 }

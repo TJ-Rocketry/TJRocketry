@@ -27,7 +27,7 @@ export async function GET() {
 
     const { data: user } = await supabase
       .from('User')
-      .select("id, ionId, name, username, classYear, roles, pfpUrl")
+      .select("id, ionId, name, username, classYear, roles, pfpUrl, bio, position")
       .eq("ionId", ionId)
       .maybeSingle();
 
@@ -45,9 +45,11 @@ export async function GET() {
         classYear: user.classYear,
         roles: user.roles,
         pfpUrl: user.pfpUrl,
+        bio: user.bio,
+        position: user.position,
       },
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ authenticated: false }, { status: 500 });
   }
 }
